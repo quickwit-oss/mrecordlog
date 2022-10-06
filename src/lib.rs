@@ -1,7 +1,7 @@
 mod block_read_write;
 pub use self::block_read_write::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
 
-mod error;
+pub mod error;
 mod frame;
 mod mem;
 mod multi_record_log;
@@ -9,7 +9,7 @@ mod record;
 mod recordlog;
 mod rolling;
 
-pub use self::multi_record_log::MultiRecordLog;
+pub use self::multi_record_log::{FlushPolicy, MultiRecordLog};
 
 #[cfg(test)]
 mod tests;

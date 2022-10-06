@@ -75,3 +75,11 @@ impl From<MissingQueue> for AppendError {
 
 #[derive(Debug)]
 pub struct MissingQueue(pub String);
+
+#[derive(Error, Debug)]
+pub enum ReadRecordError {
+    #[error("Io error: {0}")]
+    IoError(#[from] io::Error),
+    #[error("Corruption")]
+    Corruption,
+}

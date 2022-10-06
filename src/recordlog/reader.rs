@@ -1,7 +1,6 @@
 use std::io;
 
-use thiserror::Error;
-
+use crate::error::ReadRecordError;
 use crate::frame::{FrameReader, FrameWriter, ReadFrameError};
 use crate::recordlog::RecordWriter;
 use crate::rolling::{RollingReader, RollingWriter};
@@ -14,14 +13,6 @@ pub struct RecordReader<R> {
     // This is useful, as it makes it possible to drop a record
     // if one of its fragment was corrupted.
     within_record: bool,
-}
-
-#[derive(Error, Debug)]
-pub enum ReadRecordError {
-    #[error("Io error: {0}")]
-    IoError(#[from] io::Error),
-    #[error("Corruption")]
-    Corruption,
 }
 
 impl<R: BlockRead + Unpin> RecordReader<R> {

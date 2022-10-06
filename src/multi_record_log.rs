@@ -3,10 +3,12 @@ use std::ops::RangeBounds;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::error::{AppendError, CreateQueueError, DeleteQueueError, TruncateError};
+use crate::error::{
+    AppendError, CreateQueueError, DeleteQueueError, ReadRecordError, TruncateError,
+};
 use crate::mem;
 use crate::record::MultiPlexedRecord;
-use crate::recordlog::{ReadRecordError, RecordWriter};
+use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
 
 pub struct MultiRecordLog {
@@ -39,7 +41,10 @@ impl FlushState {
     fn update_flushed(&mut self) {
         match self {
             FlushState::OnAppend => (),
-            FlushState::OnDelay { ref mut next_flush, interval } => *next_flush = Instant::now() + *interval,
+            FlushState::OnDelay {
+                ref mut next_flush,
+                interval,
+            } => *next_flush = Instant::now() + *interval,
         }
     }
 }
@@ -62,7 +67,10 @@ impl MultiRecordLog {
         Self::open_with_prefs(directory_path, FlushPolicy::OnAppend).await
     }
 
-    pub async fn open_with_prefs(directory_path: &Path, flush_policy: FlushPolicy) -> Result<Self, ReadRecordError> {
+    pub async fn open_with_prefs(
+        directory_path: &Path,
+        flush_policy: FlushPolicy,
+    ) -> Result<Self, ReadRecordError> {
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
