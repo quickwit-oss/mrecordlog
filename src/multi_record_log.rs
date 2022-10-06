@@ -17,8 +17,13 @@ pub struct MultiRecordLog {
     next_flush: FlushState,
 }
 
+/// Policy for flushing data
 pub enum FlushPolicy {
+    /// Flush at each operation
     OnAppend,
+    /// Flush regularly. Flushing is realized on the first operation after the delay since last
+    /// flush elapsed. This means if no new operation arrive, some content may not get flushed for
+    /// a while.
     OnDelay(Duration),
 }
 
@@ -62,11 +67,12 @@ impl From<FlushPolicy> for FlushState {
 }
 
 impl MultiRecordLog {
-    /// Open the multi record log.
+    /// Open the multi record log, flushing after each operation.
     pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
         Self::open_with_prefs(directory_path, FlushPolicy::OnAppend).await
     }
 
+    /// Open the multi record log, flushing following the provided policy.
     pub async fn open_with_prefs(
         directory_path: &Path,
         flush_policy: FlushPolicy,
