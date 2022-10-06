@@ -1,5 +1,7 @@
+use std::io;
 use std::ops::RangeBounds;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crate::error::{AppendError, CreateQueueError, DeleteQueueError, TruncateError};
 use crate::mem;
@@ -10,11 +12,57 @@ use crate::rolling::RollingWriter;
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
     in_mem_queues: mem::MemQueues,
+    next_flush: FlushState,
+}
+
+pub enum FlushPolicy {
+    OnAppend,
+    OnDelay(Duration),
+}
+
+enum FlushState {
+    OnAppend,
+    OnDelay {
+        next_flush: Instant,
+        interval: Duration,
+    },
+}
+
+impl FlushState {
+    fn should_flush(&self) -> bool {
+        match self {
+            FlushState::OnAppend => true,
+            FlushState::OnDelay { next_flush, .. } => *next_flush < Instant::now(),
+        }
+    }
+
+    fn update_flushed(&mut self) {
+        match self {
+            FlushState::OnAppend => (),
+            FlushState::OnDelay { ref mut next_flush, interval } => *next_flush = Instant::now() + *interval,
+        }
+    }
+}
+
+impl From<FlushPolicy> for FlushState {
+    fn from(val: FlushPolicy) -> FlushState {
+        match val {
+            FlushPolicy::OnAppend => FlushState::OnAppend,
+            FlushPolicy::OnDelay(dur) => FlushState::OnDelay {
+                next_flush: Instant::now() + dur,
+                interval: dur,
+            },
+        }
+    }
 }
 
 impl MultiRecordLog {
     /// Open the multi record log.
     pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
+        Self::open_with_prefs(directory_path, FlushPolicy::OnAppend).await
+    }
+
+    pub async fn open_with_prefs(directory_path: &Path, flush_policy: FlushPolicy) -> Result<Self, ReadRecordError> {
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
@@ -53,6 +101,7 @@ impl MultiRecordLog {
         Ok(MultiRecordLog {
             record_log_writer,
             in_mem_queues,
+            next_flush: flush_policy.into(),
         })
     }
 
@@ -68,7 +117,7 @@ impl MultiRecordLog {
     pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
         let record = MultiPlexedRecord::Touch { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
-        self.record_log_writer.flush().await?;
+        self.flush_on_policy().await?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
@@ -77,7 +126,7 @@ impl MultiRecordLog {
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
-        self.record_log_writer.flush().await?;
+        self.flush_on_policy().await?;
         self.in_mem_queues.delete_queue(queue)?;
         Ok(())
     }
@@ -119,7 +168,7 @@ impl MultiRecordLog {
             payload,
         };
         self.record_log_writer.write_record(record).await?;
-        self.record_log_writer.flush().await?;
+        self.flush_on_policy().await?;
         self.in_mem_queues
             .append_record(queue, &file_number, position, payload)?;
         Ok(Some(position))
@@ -151,7 +200,6 @@ impl MultiRecordLog {
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;
         self.touch_empty_queues().await?;
-        self.record_log_writer.flush().await?;
         self.record_log_writer.gc().await?;
         Ok(())
     }
@@ -167,5 +215,17 @@ impl MultiRecordLog {
         // We do not rely on `entry` in order to avoid
         // the allocation.
         self.in_mem_queues.range(queue, range)
+    }
+
+    async fn flush_on_policy(&mut self) -> io::Result<()> {
+        if self.next_flush.should_flush() {
+            self.flush().await?;
+            self.next_flush.update_flushed();
+        }
+        Ok(())
+    }
+
+    pub async fn flush(&mut self) -> io::Result<()> {
+        self.record_log_writer.flush().await
     }
 }
