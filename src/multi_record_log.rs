@@ -57,7 +57,7 @@ impl MultiRecordLog {
     }
 
     #[cfg(test)]
-    pub fn list_file_numbers(&self) -> Vec<u32> {
+    pub fn list_file_numbers(&self) -> Vec<u64> {
         let rolling_writer = self.record_log_writer.get_underlying_wrt();
         rolling_writer.list_file_numbers()
     }

@@ -24,17 +24,16 @@ use async_trait::async_trait;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 
-use super::FileNumber;
-use crate::rolling::FILE_NUM_BYTES;
+use super::{FileNumber, FileTracker};
+use crate::rolling::{FILE_NUM_BYTES, FRAME_NUM_BYTES};
 use crate::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
 
-#[derive(Clone)]
 pub struct Directory {
     dir: PathBuf,
-    first_file: FileNumber,
+    pub(crate) files: FileTracker,
 }
 
-fn filename_to_position(file_name: &str) -> Option<u32> {
+fn filename_to_position(file_name: &str) -> Option<u64> {
     if file_name.len() != 24 {
         return None;
     }
@@ -49,7 +48,7 @@ fn filename_to_position(file_name: &str) -> Option<u32> {
     {
         return None;
     }
-    file_name[4..].parse::<u32>().ok()
+    file_name[4..].parse::<u64>().ok()
 }
 
 fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
@@ -70,7 +69,7 @@ async fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<Fi
 
 impl Directory {
     pub async fn open(dir_path: &Path) -> io::Result<Directory> {
-        let mut file_numbers: Vec<u32> = Default::default();
+        let mut file_numbers: Vec<u64> = Default::default();
         let mut read_dir = tokio::fs::read_dir(dir_path).await?;
         while let Some(dir_entry) = read_dir.next_entry().await? {
             if !dir_entry.file_type().await?.is_file() {
@@ -85,32 +84,28 @@ impl Directory {
                 file_numbers.push(seq_number);
             }
         }
-        let first_file = if let Some(first_file) = FileNumber::from_file_numbers(file_numbers) {
-            first_file
+        let files = if let Some(files) = FileTracker::from_file_numbers(file_numbers) {
+            files
         } else {
-            let file_number = FileNumber::default();
-            create_file(dir_path, &file_number).await?;
-            file_number
+            let files = FileTracker::new();
+            let file_number = files.first();
+            create_file(dir_path, file_number).await?;
+            files
         };
         Ok(Directory {
             dir: dir_path.to_path_buf(),
-            first_file,
+            files,
         })
     }
 
     pub fn first_file_number(&self) -> &FileNumber {
-        &self.first_file
+        self.files.first()
     }
 
     async fn gc(&mut self) -> io::Result<()> {
-        let mut file_cursor = &self.first_file;
-        while file_cursor.can_be_deleted() {
-            let filepath = filepath(&self.dir, file_cursor);
+        while let Some(file) = self.files.take_first_unused() {
+            let filepath = filepath(&self.dir, &file);
             tokio::fs::remove_file(&filepath).await?;
-            if let Some(next_file) = file_cursor.next() {
-                self.first_file = next_file.clone();
-                file_cursor = &self.first_file;
-            }
         }
         Ok(())
     }
@@ -162,7 +157,7 @@ impl RollingReader {
         let offset = self.block_id * crate::BLOCK_NUM_BYTES;
         self.file.seek(SeekFrom::Start(offset as u64)).await?;
         Ok(RollingWriter {
-            file: BufWriter::with_capacity(1 << 15, self.file),
+            file: BufWriter::with_capacity(FRAME_NUM_BYTES, self.file),
             offset,
             file_number: self.file_number.clone(),
             directory: self.directory,
@@ -190,11 +185,12 @@ impl BlockRead for RollingReader {
             return Ok(true);
         }
         loop {
-            let next_file_number = if let Some(next_file_number) = self.file_number.next() {
-                next_file_number
-            } else {
-                return Ok(false);
-            };
+            let next_file_number =
+                if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
+                    next_file_number
+                } else {
+                    return Ok(false);
+                };
             let mut next_file: File = self.directory.open_file(&next_file_number).await?;
             let success = read_block(&mut next_file, &mut self.block).await?;
             if success {
@@ -215,7 +211,7 @@ pub struct RollingWriter {
     file: BufWriter<File>,
     offset: usize,
     file_number: FileNumber,
-    directory: Directory,
+    pub(crate) directory: Directory,
 }
 
 impl RollingWriter {
@@ -233,8 +229,10 @@ impl RollingWriter {
     }
 
     #[cfg(test)]
-    pub fn list_file_numbers(&self) -> Vec<u32> {
-        self.directory.first_file_number().unroll()
+    pub fn list_file_numbers(&self) -> Vec<u64> {
+        self.directory
+            .first_file_number()
+            .unroll(&self.directory.files)
     }
 }
 
@@ -247,17 +245,17 @@ impl BlockWrite for RollingWriter {
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.offset + buf.len() > FILE_NUM_BYTES {
             self.file.flush().await?;
-            if let Some(next_file_number) = self.file_number.next() {
+            if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
                 self.file = BufWriter::with_capacity(
-                    1 << 15,
+                    FRAME_NUM_BYTES,
                     self.directory.open_file(&next_file_number).await?,
                 );
                 self.file_number = next_file_number;
                 self.offset = 0;
             } else {
-                let next_file_number = self.file_number.inc();
+                let next_file_number = self.directory.files.inc(&self.file_number);
                 self.file = BufWriter::with_capacity(
-                    1 << 15,
+                    FRAME_NUM_BYTES,
                     create_file(&self.directory.dir, &next_file_number).await?,
                 );
                 self.file_number = next_file_number;

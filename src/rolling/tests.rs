@@ -69,8 +69,8 @@ async fn test_directory_single_file() {
     let tmp_dir = tempfile::tempdir().unwrap();
     {
         let directory = Directory::open(tmp_dir.path()).await.unwrap();
-        let first_file: &FileNumber = directory.first_file_number();
-        assert_eq!(first_file.unroll(), &[0]);
+        let first_file = directory.first_file_number();
+        assert_eq!(first_file.unroll(&directory.files), &[0]);
     }
     let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).await.unwrap();
     for _ in 0..NUM_BLOCKS_PER_FILE - 1 {
@@ -97,7 +97,7 @@ async fn test_directory_simple() {
     {
         let directory = Directory::open(tmp_dir.path()).await.unwrap();
         let first_file: &FileNumber = directory.first_file_number();
-        assert_eq!(first_file.unroll(), &[0, 1]);
+        assert_eq!(first_file.unroll(&directory.files), &[0, 1]);
     }
 }
 
@@ -114,7 +114,7 @@ async fn test_directory_truncate() {
         assert!(!file_0.can_be_deleted());
         let mut writer: RollingWriter = reader.into_writer().await.unwrap();
         let buf = vec![1u8; FRAME_NUM_BYTES as usize];
-        assert_eq!(&writer.current_file().unroll(), &[0]);
+        assert_eq!(&writer.current_file().unroll(&writer.directory.files), &[0]);
         for _ in 0..NUM_BLOCKS_PER_FILE + 1 {
             writer.write(&buf).await.unwrap();
         }

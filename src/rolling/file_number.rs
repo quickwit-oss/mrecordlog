@@ -1,67 +1,94 @@
-use std::cmp::Reverse;
-use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::collections::BTreeSet;
+use std::sync::Arc;
 
-#[derive(Clone, Default)]
+pub struct FileTracker {
+    files: BTreeSet<FileNumber>,
+}
+
+impl FileTracker {
+    pub fn new() -> FileTracker {
+        FileTracker::from_file_numbers(vec![0]).unwrap()
+    }
+
+    pub fn first(&self) -> &FileNumber {
+        self.files.iter().next().unwrap()
+    }
+
+    pub fn take_first_unused(&mut self) -> Option<FileNumber> {
+        // if len is 1, we need to keep that element to keep self.files not empty
+        if self.files.len() < 2 {
+            return None;
+        }
+
+        let first = self.files.iter().next().unwrap();
+        if first.can_be_deleted() {
+            let idx = *first.file_number;
+            self.files.take(&idx)
+        } else {
+            None
+        }
+    }
+
+    pub fn next(&self, curr: &FileNumber) -> Option<FileNumber> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        self.files
+            .range((Excluded(*curr.file_number), Unbounded))
+            .next()
+            .cloned()
+    }
+
+    pub fn inc(&mut self, curr: &FileNumber) -> FileNumber {
+        use std::ops::Bound::{Excluded, Unbounded};
+        if let Some(file) = self
+            .files
+            .range((Excluded(*curr.file_number), Unbounded))
+            .next()
+        {
+            return file.clone();
+        }
+        let new_number = *curr.file_number + 1u64;
+        let new_file_number = FileNumber::new(new_number);
+        self.files.insert(new_file_number.clone());
+        new_file_number
+    }
+
+    pub fn from_file_numbers(file_numbers: Vec<u64>) -> Option<FileTracker> {
+        if file_numbers.is_empty() {
+            return None;
+        }
+
+        let files = file_numbers
+            .into_iter()
+            .map(|k| FileNumber::new(k))
+            .collect();
+
+        Some(FileTracker { files })
+    }
+}
+
+#[derive(Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct FileNumber {
-    inner: Arc<Inner>,
-}
-
-#[derive(Default)]
-struct Inner {
-    pub(crate) file_number: u32,
-    next_file_number: Arc<Mutex<Option<FileNumber>>>,
-}
-
-impl fmt::Debug for FileNumber {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FileNumber")
-            .field("file_number", &self.inner.file_number)
-            .finish()
-    }
-}
-
-impl Ord for FileNumber {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.inner.file_number.cmp(&other.inner.file_number)
-    }
-}
-
-impl PartialOrd for FileNumber {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for FileNumber {}
-
-impl PartialEq for FileNumber {
-    fn eq(&self, other: &Self) -> bool {
-        self.inner.file_number == other.inner.file_number
-    }
+    file_number: Arc<u64>,
 }
 
 impl FileNumber {
-    fn new(file_number: u32) -> Self {
+    fn new(file_number: u64) -> Self {
         FileNumber {
-            inner: Arc::new(Inner {
-                file_number,
-                next_file_number: Arc::new(Mutex::new(None)),
-            }),
+            file_number: Arc::new(file_number),
         }
     }
 
     pub fn can_be_deleted(&self) -> bool {
-        Arc::strong_count(&self.inner) == 1
+        Arc::strong_count(&self.file_number) == 1
     }
 
     #[cfg(test)]
-    pub fn unroll(&self) -> Vec<u32> {
+    pub fn unroll(&self, tracker: &FileTracker) -> Vec<u64> {
         let mut file = self.clone();
         let mut file_numbers = Vec::new();
         loop {
             file_numbers.push(file.file_number());
-            if let Some(next_file) = file.next() {
+            if let Some(next_file) = tracker.next(&file) {
                 file = next_file;
             } else {
                 return file_numbers;
@@ -70,55 +97,29 @@ impl FileNumber {
     }
 
     pub fn filename(&self) -> String {
-        format!("wal-{:020}", self.inner.file_number)
+        format!("wal-{:020}", self.file_number)
     }
 
     #[cfg(test)]
-    pub fn file_number(&self) -> u32 {
-        self.inner.file_number
+    pub fn file_number(&self) -> u64 {
+        *self.file_number
     }
 
     #[cfg(test)]
-    pub fn for_test(file_number: u32) -> Self {
+    pub fn for_test(file_number: u64) -> Self {
         FileNumber::new(file_number)
     }
+}
 
-    pub fn next(&self) -> Option<FileNumber> {
-        self.inner.next_file_number.lock().unwrap().clone()
-    }
-
-    /// Increment the position and returns the previous value.
-    pub fn inc(&self) -> FileNumber {
-        let mut lock = self.inner.next_file_number.lock().unwrap();
-        if let Some(file) = lock.as_ref() {
-            return file.clone();
-        }
-        let new_file_number = FileNumber::new(self.inner.file_number + 1u32);
-        *lock = Some(new_file_number.clone());
-        new_file_number
-    }
-
-    pub fn from_file_numbers(mut file_numbers: Vec<u32>) -> Option<FileNumber> {
-        if file_numbers.is_empty() {
-            return None;
-        }
-        file_numbers.sort_by_key(|val| Reverse(*val));
-        let mut first_file_number = FileNumber::new(file_numbers[0]);
-        for &file_number in &file_numbers[1..] {
-            first_file_number = FileNumber {
-                inner: Arc::new(Inner {
-                    file_number,
-                    next_file_number: Arc::new(Mutex::new(Some(first_file_number.clone()))),
-                }),
-            };
-        }
-        Some(first_file_number)
+impl std::borrow::Borrow<u64> for FileNumber {
+    fn borrow(&self) -> &u64 {
+        &self.file_number
     }
 }
 
 #[cfg(test)]
-impl From<u32> for FileNumber {
-    fn from(file_number: u32) -> Self {
+impl From<u64> for FileNumber {
+    fn from(file_number: u64) -> Self {
         FileNumber::for_test(file_number)
     }
 }
@@ -130,7 +131,7 @@ mod tests {
     #[test]
     fn test_file_number_starts_at_0() {
         let file = FileNumber::default();
-        assert_eq!(file.file_number(), 0u32);
+        assert_eq!(file.file_number(), 0u64);
     }
 
     #[test]
