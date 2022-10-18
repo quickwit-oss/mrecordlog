@@ -14,52 +14,52 @@ use crate::rolling::RollingWriter;
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
     in_mem_queues: mem::MemQueues,
-    next_flush: FlushState,
+    next_sync: SyncState,
 }
 
-/// Policy for flushing data
-pub enum FlushPolicy {
-    /// Flush at each operation
+/// Policy for synchonizing and flushing data
+pub enum SyncPolicy {
+    /// Sync and flush at each operation
     OnAppend,
-    /// Flush regularly. Flushing is realized on the first operation after the delay since last
-    /// flush elapsed. This means if no new operation arrive, some content may not get flushed for
-    /// a while.
+    /// Sync and flush regularly. Sync is realized on the first operation after the delay since
+    /// last sync elapsed. This means if no new operation arrive, some content may not get
+    /// flushed for a while.
     OnDelay(Duration),
 }
 
-enum FlushState {
+enum SyncState {
     OnAppend,
     OnDelay {
-        next_flush: Instant,
+        next_sync: Instant,
         interval: Duration,
     },
 }
 
-impl FlushState {
-    fn should_flush(&self) -> bool {
+impl SyncState {
+    fn should_sync(&self) -> bool {
         match self {
-            FlushState::OnAppend => true,
-            FlushState::OnDelay { next_flush, .. } => *next_flush < Instant::now(),
+            SyncState::OnAppend => true,
+            SyncState::OnDelay { next_sync, .. } => *next_sync < Instant::now(),
         }
     }
 
-    fn update_flushed(&mut self) {
+    fn update_synced(&mut self) {
         match self {
-            FlushState::OnAppend => (),
-            FlushState::OnDelay {
-                ref mut next_flush,
+            SyncState::OnAppend => (),
+            SyncState::OnDelay {
+                ref mut next_sync,
                 interval,
-            } => *next_flush = Instant::now() + *interval,
+            } => *next_sync = Instant::now() + *interval,
         }
     }
 }
 
-impl From<FlushPolicy> for FlushState {
-    fn from(val: FlushPolicy) -> FlushState {
+impl From<SyncPolicy> for SyncState {
+    fn from(val: SyncPolicy) -> SyncState {
         match val {
-            FlushPolicy::OnAppend => FlushState::OnAppend,
-            FlushPolicy::OnDelay(dur) => FlushState::OnDelay {
-                next_flush: Instant::now() + dur,
+            SyncPolicy::OnAppend => SyncState::OnAppend,
+            SyncPolicy::OnDelay(dur) => SyncState::OnDelay {
+                next_sync: Instant::now() + dur,
                 interval: dur,
             },
         }
@@ -67,15 +67,15 @@ impl From<FlushPolicy> for FlushState {
 }
 
 impl MultiRecordLog {
-    /// Open the multi record log, flushing after each operation.
+    /// Open the multi record log, syncing after each operation.
     pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
-        Self::open_with_prefs(directory_path, FlushPolicy::OnAppend).await
+        Self::open_with_prefs(directory_path, SyncPolicy::OnAppend).await
     }
 
-    /// Open the multi record log, flushing following the provided policy.
+    /// Open the multi record log, syncing following the provided policy.
     pub async fn open_with_prefs(
         directory_path: &Path,
-        flush_policy: FlushPolicy,
+        sync_policy: SyncPolicy,
     ) -> Result<Self, ReadRecordError> {
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
@@ -115,7 +115,7 @@ impl MultiRecordLog {
         Ok(MultiRecordLog {
             record_log_writer,
             in_mem_queues,
-            next_flush: flush_policy.into(),
+            next_sync: sync_policy.into(),
         })
     }
 
@@ -131,7 +131,7 @@ impl MultiRecordLog {
     pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
         let record = MultiPlexedRecord::Touch { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
-        self.flush_on_policy().await?;
+        self.sync().await?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
@@ -140,7 +140,7 @@ impl MultiRecordLog {
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
-        self.flush_on_policy().await?;
+        self.sync().await?;
         self.in_mem_queues.delete_queue(queue)?;
         Ok(())
     }
@@ -182,7 +182,7 @@ impl MultiRecordLog {
             payload,
         };
         self.record_log_writer.write_record(record).await?;
-        self.flush_on_policy().await?;
+        self.sync_on_policy().await?;
         self.in_mem_queues
             .append_record(queue, &file_number, position, payload)?;
         Ok(Some(position))
@@ -231,15 +231,15 @@ impl MultiRecordLog {
         self.in_mem_queues.range(queue, range)
     }
 
-    async fn flush_on_policy(&mut self) -> io::Result<()> {
-        if self.next_flush.should_flush() {
-            self.flush().await?;
-            self.next_flush.update_flushed();
+    async fn sync_on_policy(&mut self) -> io::Result<()> {
+        if self.next_sync.should_sync() {
+            self.sync().await?;
+            self.next_sync.update_synced();
         }
         Ok(())
     }
 
-    pub async fn flush(&mut self) -> io::Result<()> {
+    pub async fn sync(&mut self) -> io::Result<()> {
         self.record_log_writer.flush().await
     }
 }

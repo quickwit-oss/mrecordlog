@@ -9,7 +9,7 @@ mod record;
 mod recordlog;
 mod rolling;
 
-pub use self::multi_record_log::{FlushPolicy, MultiRecordLog};
+pub use self::multi_record_log::{MultiRecordLog, SyncPolicy};
 
 #[cfg(test)]
 mod tests;
