@@ -6,7 +6,9 @@ use crate::rolling::FileNumber;
 #[derive(Clone)]
 struct RecordMeta {
     start_offset: usize,
-    _file_number: FileNumber,
+    // in a vec of RecordMeta, this field should be set only on the last record
+    // which relate to that File.
+    file_number: Option<FileNumber>,
 }
 
 #[derive(Default)]
@@ -60,7 +62,7 @@ impl MemQueue {
     /// AppendError if the record is strangely in the past or is too much in the future.
     pub fn append_record(
         &mut self,
-        file_number: FileNumber,
+        file_number: &FileNumber,
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
@@ -75,9 +77,20 @@ impl MemQueue {
         if self.start_position == 0u64 && self.record_metas.is_empty() {
             self.start_position = target_position;
         }
+
+        let file_number = if let Some(record_meta) = self.record_metas.last_mut() {
+            if record_meta.file_number.as_ref() == Some(file_number) {
+                record_meta.file_number.take().unwrap()
+            } else {
+                file_number.clone()
+            }
+        } else {
+            file_number.clone()
+        };
+
         let record_meta = RecordMeta {
             start_offset: self.concatenated_records.len(),
-            _file_number: file_number,
+            file_number: Some(file_number),
         };
         self.record_metas.push(record_meta);
         self.concatenated_records.extend_from_slice(payload);

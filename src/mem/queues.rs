@@ -75,7 +75,7 @@ impl MemQueues {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
-            .append_record(file_number.clone(), target_position, payload)?;
+            .append_record(file_number, target_position, payload)?;
         Ok(())
     }
 
