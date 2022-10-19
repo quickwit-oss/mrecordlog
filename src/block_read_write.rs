@@ -86,6 +86,7 @@ impl From<VecBlockWriter> for Vec<u8> {
 #[async_trait]
 impl BlockWrite for VecBlockWriter {
     async fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+        assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.cursor + buf.len() > self.buffer.len() {
             let new_len = ceil_to_block((self.cursor + buf.len()) * 2 + 1);
             self.buffer.resize(new_len, 0u8);
