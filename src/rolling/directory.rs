@@ -51,7 +51,7 @@ fn filename_to_position(file_name: &str) -> Option<u64> {
     file_name[4..].parse::<u64>().ok()
 }
 
-fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
+pub(crate) fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
     dir.join(&file_number.filename())
 }
 
@@ -68,6 +68,7 @@ async fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<Fi
 }
 
 impl Directory {
+    /// Open a `Directory`, or create a new, empty, one. `dir_path` must exist and be a directory.
     pub async fn open(dir_path: &Path) -> io::Result<Directory> {
         let mut file_numbers: Vec<u64> = Default::default();
         let mut read_dir = tokio::fs::read_dir(dir_path).await?;
@@ -98,10 +99,12 @@ impl Directory {
         })
     }
 
+    /// Get the first still used FileNumber.
     pub fn first_file_number(&self) -> &FileNumber {
         self.files.first()
     }
 
+    /// Delete FileNumbers and the associated wal files no longer used.
     async fn gc(&mut self) -> io::Result<()> {
         while let Some(file) = self.files.take_first_unused() {
             let filepath = filepath(&self.dir, &file);
@@ -110,6 +113,7 @@ impl Directory {
         Ok(())
     }
 
+    /// Open the wal file with the provided FileNumber.
     pub async fn open_file(&self, file_number: &FileNumber) -> io::Result<File> {
         let filepath = filepath(&self.dir, file_number);
         let mut file = OpenOptions::new()
@@ -131,6 +135,7 @@ pub struct RollingReader {
 }
 
 impl RollingReader {
+    /// Open a directory for reading.
     pub async fn open(dir_path: &Path) -> io::Result<Self> {
         let directory = Directory::open(dir_path).await?;
         let first_file = directory.first_file_number().clone();
@@ -184,13 +189,15 @@ impl BlockRead for RollingReader {
             self.block_id += 1;
             return Ok(true);
         }
+
+        let mut next_file_number =
+            if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
+                next_file_number
+            } else {
+                return Ok(false);
+            };
+
         loop {
-            let next_file_number =
-                if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
-                    next_file_number
-                } else {
-                    return Ok(false);
-                };
             let mut next_file: File = self.directory.open_file(&next_file_number).await?;
             let success = read_block(&mut next_file, &mut self.block).await?;
             if success {
@@ -199,6 +206,13 @@ impl BlockRead for RollingReader {
                 self.file_number = next_file_number;
                 return Ok(true);
             }
+
+            next_file_number =
+                if let Some(next_file_number) = self.directory.files.next(&next_file_number) {
+                    next_file_number
+                } else {
+                    return Ok(false);
+                };
         }
     }
 
@@ -219,11 +233,13 @@ impl RollingWriter {
         self.directory.gc().await
     }
 
+    /// Move forward of `num_bytes` without actually writing anything.
     pub async fn forward(&mut self, num_bytes: usize) -> io::Result<()> {
         self.file.seek(SeekFrom::Current(num_bytes as i64)).await?;
         self.offset += num_bytes;
         Ok(())
     }
+
     pub fn current_file(&self) -> &FileNumber {
         &self.file_number
     }
@@ -245,22 +261,20 @@ impl BlockWrite for RollingWriter {
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.offset + buf.len() > FILE_NUM_BYTES {
             self.file.flush().await?;
-            if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
-                self.file = BufWriter::with_capacity(
-                    FRAME_NUM_BYTES,
-                    self.directory.open_file(&next_file_number).await?,
-                );
-                self.file_number = next_file_number;
-                self.offset = 0;
-            } else {
-                let next_file_number = self.directory.files.inc(&self.file_number);
-                self.file = BufWriter::with_capacity(
-                    FRAME_NUM_BYTES,
-                    create_file(&self.directory.dir, &next_file_number).await?,
-                );
-                self.file_number = next_file_number;
-                self.offset = 0;
-            }
+
+            let (file_number, file) =
+                if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
+                    let file = self.directory.open_file(&next_file_number).await?;
+                    (next_file_number, file)
+                } else {
+                    let next_file_number = self.directory.files.inc(&self.file_number);
+                    let file = create_file(&self.directory.dir, &next_file_number).await?;
+                    (next_file_number, file)
+                };
+
+            self.file = BufWriter::with_capacity(FRAME_NUM_BYTES, file);
+            self.file_number = file_number;
+            self.offset = 0;
         }
         self.offset += buf.len();
         self.file.write_all(buf).await?;
@@ -303,5 +317,23 @@ mod tests {
     #[test]
     fn test_filename_to_seq_number() {
         assert_eq!(filename_to_position("wal-00000000000000000001"), Some(1));
+    }
+
+    #[test]
+    fn test_filename_to_seq_number_33b() {
+        // 2**32, overflow a u32
+        assert_eq!(
+            filename_to_position("wal-00000000004294967296"),
+            Some(4294967296)
+        );
+    }
+
+    #[test]
+    fn test_filename_to_seq_number_64b() {
+        // 2**64-1, max supported value
+        assert_eq!(
+            filename_to_position(&format!("wal-{}", u64::MAX)),
+            Some(u64::MAX)
+        );
     }
 }

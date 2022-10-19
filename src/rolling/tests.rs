@@ -65,6 +65,51 @@ async fn test_read_write_2nd_block() {
 }
 
 #[tokio::test]
+async fn test_read_truncated() {
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let mut buffer = [0u8; BLOCK_NUM_BYTES];
+    let to_write = NUM_BLOCKS_PER_FILE * 3;
+    {
+        let rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).await.unwrap();
+        let mut writer: RollingWriter = rolling_reader.into_writer().await.unwrap();
+        for i in 0..to_write {
+            buffer.fill(i as u8);
+            writer.write(&buffer[..]).await.unwrap();
+        }
+        writer.flush().await.unwrap();
+        let file_ids = writer.list_file_numbers();
+        let middle_file = file_ids[1];
+        let filepath =
+            crate::rolling::directory::filepath(tmp_dir.path(), &FileNumber::for_test(middle_file));
+
+        // voluntarily corrupt data by truncating a wal file.
+        tokio::fs::OpenOptions::new()
+            .truncate(true)
+            .write(true)
+            .open(&filepath)
+            .await
+            .unwrap();
+    }
+    {
+        let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).await.unwrap();
+
+        for i in 0..to_write {
+            // ignore file 1 as it was corrupted
+            if i / NUM_BLOCKS_PER_FILE == 1 {
+                continue;
+            }
+            assert!(rolling_reader.block().iter().all(|&b| b == i as u8));
+            // check we manage to get the next block, except for the last block: there is nothing
+            // after
+            assert_eq!(
+                rolling_reader.next_block().await.unwrap(),
+                i != to_write - 1
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_directory_single_file() {
     let tmp_dir = tempfile::tempdir().unwrap();
     {
