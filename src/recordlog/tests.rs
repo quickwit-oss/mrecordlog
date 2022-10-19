@@ -1,7 +1,8 @@
 use std::iter;
 
-use super::{ReadRecordError, RecordReader, RecordWriter};
+use super::{RecordReader, RecordWriter};
 use crate::block_read_write::ArrayReader;
+use crate::error::ReadRecordError;
 use crate::frame::HEADER_LEN;
 use crate::BLOCK_NUM_BYTES;
 
