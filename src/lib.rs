@@ -14,8 +14,8 @@ pub use self::multi_record_log::{MultiRecordLog, SyncPolicy};
 #[cfg(test)]
 mod tests;
 
-// #[cfg(test)]
-// mod proptests;
+#[cfg(test)]
+mod proptests;
 
 pub trait Serializable<'a>: Sized {
     /// Clears the buffer first.

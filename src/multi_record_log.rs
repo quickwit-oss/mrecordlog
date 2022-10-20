@@ -215,6 +215,7 @@ impl MultiRecordLog {
             .await?;
         self.touch_empty_queues().await?;
         self.record_log_writer.gc().await?;
+        self.sync_on_policy().await?;
         Ok(())
     }
 
