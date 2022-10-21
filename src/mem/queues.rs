@@ -28,7 +28,8 @@ impl MemQueues {
         Ok(())
     }
 
-    pub fn empty_queue_positions(&mut self) -> impl Iterator<Item = (&'_ str, &mut MemQueue)> + '_ {
+    /// Returns all sub-queues which are currently empty.
+    pub fn empty_queues(&mut self) -> impl Iterator<Item = (&'_ str, &mut MemQueue)> + '_ {
         self.queues.iter_mut().filter_map(|(queue, mem_queue)| {
             if mem_queue.is_empty() {
                 Some((queue.as_str(), mem_queue))

@@ -189,7 +189,7 @@ impl MultiRecordLog {
     }
 
     async fn touch_empty_queues(&mut self) -> Result<(), TruncateError> {
-        for (queue_id, queue) in self.in_mem_queues.empty_queue_positions() {
+        for (queue_id, queue) in self.in_mem_queues.empty_queues() {
             let next_position = queue.next_position();
             let file_number = self.record_log_writer.current_file().clone();
             let record = MultiPlexedRecord::Touch {
