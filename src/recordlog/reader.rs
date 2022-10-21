@@ -29,10 +29,12 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
         self.frame_reader.read()
     }
 
+    /// Deserialize a record without actually consuming data.
     pub fn record<'a, S: Serializable<'a>>(&'a self) -> Option<S> {
         S::deserialize(&self.record_buffer)
     }
 
+    /// Advance cursor and deserialize the next record.
     pub async fn read_record<'a, S: Serializable<'a>>(
         &'a mut self,
     ) -> Result<Option<S>, ReadRecordError> {

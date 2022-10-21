@@ -16,6 +16,11 @@ pub(crate) struct Header {
 impl Header {
     pub fn for_payload(frame_type: FrameType, payload: &[u8]) -> Header {
         assert!(payload.len() < crate::BLOCK_NUM_BYTES);
+        // TODO(trinity): I make the argument the frame_type should be checksummed too:
+        // Assuming the sequence "First Middle Last", a single byte corruption can give
+        // "First Last Last", which recordlog::Reader would treat as a two frame record followed by
+        // a 3 frame record (of which two frames are already seen), effectively creating a 2 frame
+        // record out of thin air, without detecting any corruption.
         Header {
             checksum: crc32(payload),
             len: payload.len() as u16,
@@ -35,6 +40,10 @@ impl Header {
         crc32(payload) == self.checksum
     }
 
+    /// Serialize the header
+    ///
+    /// # Panics
+    /// panic if `dest` isn't exactly `HEADER_LEN` bytes long
     pub fn serialize(&self, dest: &mut [u8]) {
         assert_eq!(dest.len(), HEADER_LEN);
         dest[..4].copy_from_slice(&self.checksum.to_le_bytes()[..]);
@@ -42,6 +51,10 @@ impl Header {
         dest[6] = self.frame_type.to_u8();
     }
 
+    /// Deserialize a header
+    ///
+    /// # Panics
+    /// panic if `data` isn't exactly `HEADER_LEN` bytes long
     pub fn deserialize(data: &[u8]) -> Option<Header> {
         assert_eq!(data.len(), HEADER_LEN);
         let checksum = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);

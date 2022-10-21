@@ -6,6 +6,7 @@ use crate::{BlockWrite, BLOCK_NUM_BYTES};
 
 pub struct FrameWriter<W> {
     wrt: W,
+    // temporary buffer, not storing anything in particular after any function returns
     buffer: Box<[u8; BLOCK_NUM_BYTES]>,
 }
 
