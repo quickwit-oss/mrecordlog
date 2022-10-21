@@ -69,7 +69,7 @@ impl FileTracker {
 
         let files = file_numbers
             .into_iter()
-            .map(|k| FileNumber::new(k))
+            .map(FileNumber::new)
             .collect();
 
         Some(FileTracker { files })

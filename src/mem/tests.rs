@@ -149,12 +149,12 @@ fn test_mem_queues_non_zero_first_el() {
     assert_eq!(droopy, &[(5, &b"hello"[..])]);
 }
 
-
 #[test]
 fn test_mem_queues_kee_filenum() {
     let mut mem_queues = MemQueues::default();
 
-    let files = (0..3).into_iter()
+    let files = (0..3)
+        .into_iter()
         .map(|n| FileNumber::for_test(n))
         .collect::<Vec<_>>();
 
@@ -186,8 +186,7 @@ fn test_mem_queues_kee_filenum() {
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
 
-    mem_queues
-        .truncate("droopy", 1);
+    mem_queues.truncate("droopy", 1);
 
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
@@ -200,15 +199,13 @@ fn test_mem_queues_kee_filenum() {
     assert!(!files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues
-        .truncate("droopy", 3);
+    mem_queues.truncate("droopy", 3);
 
     assert!(files[0].can_be_deleted());
     assert!(files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues
-        .truncate("droopy", 4);
+    mem_queues.truncate("droopy", 4);
 
     assert!(files[2].can_be_deleted());
 }
