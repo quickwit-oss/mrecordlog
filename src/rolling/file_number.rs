@@ -67,10 +67,7 @@ impl FileTracker {
             return None;
         }
 
-        let files = file_numbers
-            .into_iter()
-            .map(FileNumber::new)
-            .collect();
+        let files = file_numbers.into_iter().map(FileNumber::new).collect();
 
         Some(FileTracker { files })
     }

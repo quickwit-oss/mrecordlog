@@ -34,9 +34,6 @@ impl PropTestEnv {
 
     pub async fn apply(&mut self, op: Operation) {
         match op {
-            Operation::PartialWrite => {
-                // TODO not sure what this is supposed to do
-            }
             Operation::Reopen => {
                 self.reload().await;
             }
@@ -119,7 +116,6 @@ fn queue_strategy() -> impl Strategy<Value = &'static str> {
 
 fn operation_strategy() -> impl Strategy<Value = Operation> {
     prop_oneof![
-        Just(Operation::PartialWrite),
         Just(Operation::Reopen),
         queue_strategy().prop_map(|queue| Operation::Append { queue }),
         queue_strategy().prop_map(|queue| Operation::RedundantAppend { queue }),
@@ -181,7 +177,6 @@ proptest::proptest! {
 
 #[derive(Debug, Clone)]
 enum Operation {
-    PartialWrite,
     Reopen,
     Append { queue: &'static str },
     RedundantAppend { queue: &'static str },

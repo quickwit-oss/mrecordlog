@@ -1,7 +1,8 @@
 pub const HEADER_LEN: usize = 4 + 2 + 1;
 
-fn crc32(data: &[u8]) -> u32 {
+fn crc32(data: &[u8], frame_type: u8) -> u32 {
     let mut hash = crc32fast::Hasher::default();
+    hash.update(&[frame_type]);
     hash.update(data);
     hash.finalize()
 }
@@ -16,13 +17,8 @@ pub(crate) struct Header {
 impl Header {
     pub fn for_payload(frame_type: FrameType, payload: &[u8]) -> Header {
         assert!(payload.len() < crate::BLOCK_NUM_BYTES);
-        // TODO(trinity): I make the argument the frame_type should be checksummed too:
-        // Assuming the sequence "First Middle Last", a single byte corruption can give
-        // "First Last Last", which recordlog::Reader would treat as a two frame record followed by
-        // a 3 frame record (of which two frames are already seen), effectively creating a 2 frame
-        // record out of thin air, without detecting any corruption.
         Header {
-            checksum: crc32(payload),
+            checksum: crc32(payload, frame_type as u8),
             len: payload.len() as u16,
             frame_type,
         }
@@ -37,7 +33,7 @@ impl Header {
     }
 
     pub fn check(&self, payload: &[u8]) -> bool {
-        crc32(payload) == self.checksum
+        crc32(payload, self.frame_type as u8) == self.checksum
     }
 
     /// Serialize the header
