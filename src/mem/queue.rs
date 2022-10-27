@@ -115,9 +115,14 @@ impl MemQueue {
                 .position_to_idx(start_from)
                 .unwrap_or(self.record_metas.len()),
             Bound::Excluded(&start_from) => {
-                self.position_to_idx(start_from)
-                    .unwrap_or(self.record_metas.len())
-                    + 1
+                // if the excluded start bound is before our start, we range over everything
+                if self.start_position > start_from {
+                    0
+                } else {
+                    self.position_to_idx(start_from)
+                        .unwrap_or(self.record_metas.len())
+                        + 1
+                }
             }
             Bound::Unbounded => 0,
         };
