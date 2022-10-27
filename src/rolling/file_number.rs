@@ -1,20 +1,27 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+/// RefCount a set of ordered files. Always track at least one file.
 pub struct FileTracker {
     files: BTreeSet<FileNumber>,
 }
 
 impl FileTracker {
+    /// Create a new FileTracker tracking a single file.
     pub fn new() -> FileTracker {
         FileTracker::from_file_numbers(vec![0]).unwrap()
     }
 
+    /// Get the first FileNumber still tracked
     pub fn first(&self) -> &FileNumber {
         self.files.iter().next().unwrap()
     }
 
+    /// Remove the oldest tracked file if it is no longer used
     pub fn take_first_unused(&mut self) -> Option<FileNumber> {
+        // correctness note: this takes a &mut self, so we know there can't be a &FileNumber
+        // referencing inside self while this is called.
+
         // if len is 1, we need to keep that element to keep self.files not empty
         if self.files.len() < 2 {
             return None;
@@ -29,6 +36,7 @@ impl FileTracker {
         }
     }
 
+    /// Get the FileNumber directly after `curr` if it already exists.
     pub fn next(&self, curr: &FileNumber) -> Option<FileNumber> {
         use std::ops::Bound::{Excluded, Unbounded};
         self.files
@@ -37,6 +45,7 @@ impl FileTracker {
             .cloned()
     }
 
+    /// Get the FileNumber directly after `curr`, creating it if it doesn't exist yet.
     pub fn inc(&mut self, curr: &FileNumber) -> FileNumber {
         use std::ops::Bound::{Excluded, Unbounded};
         if let Some(file) = self
@@ -52,15 +61,13 @@ impl FileTracker {
         new_file_number
     }
 
+    /// Create a FileTracker from a list of file id to track.
     pub fn from_file_numbers(file_numbers: Vec<u64>) -> Option<FileTracker> {
         if file_numbers.is_empty() {
             return None;
         }
 
-        let files = file_numbers
-            .into_iter()
-            .map(|k| FileNumber::new(k))
-            .collect();
+        let files = file_numbers.into_iter().map(FileNumber::new).collect();
 
         Some(FileTracker { files })
     }
@@ -78,6 +85,11 @@ impl FileNumber {
         }
     }
 
+    /// Returns whether there is no clone of this FileNumber in existance.
+    ///
+    /// /!\ care should be taken to not have some other code store a &FileNumber which could alias
+    /// with self as it might then be sementically incorrect to delete content based only on this
+    /// returning `true`.
     pub fn can_be_deleted(&self) -> bool {
         Arc::strong_count(&self.file_number) == 1
     }

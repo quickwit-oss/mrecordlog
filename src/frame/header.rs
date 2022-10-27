@@ -1,7 +1,8 @@
 pub const HEADER_LEN: usize = 4 + 2 + 1;
 
-fn crc32(data: &[u8]) -> u32 {
+fn crc32(data: &[u8], frame_type: u8) -> u32 {
     let mut hash = crc32fast::Hasher::default();
+    hash.update(&[frame_type]);
     hash.update(data);
     hash.finalize()
 }
@@ -17,7 +18,7 @@ impl Header {
     pub fn for_payload(frame_type: FrameType, payload: &[u8]) -> Header {
         assert!(payload.len() < crate::BLOCK_NUM_BYTES);
         Header {
-            checksum: crc32(payload),
+            checksum: crc32(payload, frame_type as u8),
             len: payload.len() as u16,
             frame_type,
         }
@@ -32,9 +33,13 @@ impl Header {
     }
 
     pub fn check(&self, payload: &[u8]) -> bool {
-        crc32(payload) == self.checksum
+        crc32(payload, self.frame_type as u8) == self.checksum
     }
 
+    /// Serialize the header
+    ///
+    /// # Panics
+    /// panic if `dest` isn't exactly `HEADER_LEN` bytes long
     pub fn serialize(&self, dest: &mut [u8]) {
         assert_eq!(dest.len(), HEADER_LEN);
         dest[..4].copy_from_slice(&self.checksum.to_le_bytes()[..]);
@@ -42,6 +47,10 @@ impl Header {
         dest[6] = self.frame_type.to_u8();
     }
 
+    /// Deserialize a header
+    ///
+    /// # Panics
+    /// panic if `data` isn't exactly `HEADER_LEN` bytes long
     pub fn deserialize(data: &[u8]) -> Option<Header> {
         assert_eq!(data.len(), HEADER_LEN);
         let checksum = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);

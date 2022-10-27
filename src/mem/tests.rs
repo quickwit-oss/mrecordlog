@@ -148,3 +148,64 @@ fn test_mem_queues_non_zero_first_el() {
     let droopy: Vec<(u64, &[u8])> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(droopy, &[(5, &b"hello"[..])]);
 }
+
+#[test]
+fn test_mem_queues_kee_filenum() {
+    let mut mem_queues = MemQueues::default();
+
+    let files = (0..3)
+        .into_iter()
+        .map(|n| FileNumber::for_test(n))
+        .collect::<Vec<_>>();
+
+    assert!(files.iter().all(FileNumber::can_be_deleted));
+
+    mem_queues.create_queue("droopy").unwrap();
+    mem_queues
+        .append_record("droopy", &files[0], 0, b"hello")
+        .unwrap();
+
+    assert!(!files[0].can_be_deleted());
+
+    mem_queues
+        .append_record("droopy", &files[0], 1, b"hello")
+        .unwrap();
+
+    assert!(!files[0].can_be_deleted());
+
+    mem_queues
+        .append_record("droopy", &files[0], 2, b"hello")
+        .unwrap();
+
+    assert!(!files[0].can_be_deleted());
+
+    mem_queues
+        .append_record("droopy", &files[1], 3, b"hello")
+        .unwrap();
+
+    assert!(!files[0].can_be_deleted());
+    assert!(!files[1].can_be_deleted());
+
+    mem_queues.truncate("droopy", 1);
+
+    assert!(!files[0].can_be_deleted());
+    assert!(!files[1].can_be_deleted());
+
+    mem_queues
+        .append_record("droopy", &files[2], 4, b"hello")
+        .unwrap();
+
+    assert!(!files[0].can_be_deleted());
+    assert!(!files[1].can_be_deleted());
+    assert!(!files[2].can_be_deleted());
+
+    mem_queues.truncate("droopy", 3);
+
+    assert!(files[0].can_be_deleted());
+    assert!(files[1].can_be_deleted());
+    assert!(!files[2].can_be_deleted());
+
+    mem_queues.truncate("droopy", 4);
+
+    assert!(files[2].can_be_deleted());
+}

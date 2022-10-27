@@ -61,12 +61,11 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
 
     // Attempt to read the header of the next frame
     // This method does not consume any bytes (which is why it is called get and not read).
-    async fn get_frame_header(&mut self) -> Result<Header, ReadFrameError> {
+    fn get_frame_header(&mut self) -> Result<Header, ReadFrameError> {
         let header_bytes: &[u8] = &self.reader.block()[self.cursor..][..HEADER_LEN];
         if header_bytes == [0u8; HEADER_LEN] {
             return Err(ReadFrameError::NotAvailable);
         }
-        self.cursor += HEADER_LEN;
         match Header::deserialize(header_bytes) {
             Some(header) => Ok(header),
             None => {
@@ -79,7 +78,8 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
     // Reads the next frame.
     pub async fn read_frame(&mut self) -> Result<(FrameType, &[u8]), ReadFrameError> {
         self.go_to_next_block_if_necessary().await?;
-        let header = self.get_frame_header().await?;
+        let header = self.get_frame_header()?;
+        self.cursor += HEADER_LEN;
         if self.cursor + header.len() > BLOCK_NUM_BYTES {
             // The number of bytes for this frame would span over
             // the next block.
