@@ -186,6 +186,69 @@ async fn test_multi_record_position_known_after_truncate() {
 }
 
 #[tokio::test]
+async fn test_multi_insert_truncate() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        multi_record_log.create_queue("queue").await.unwrap();
+        assert_eq!(
+            multi_record_log
+                .append_records(
+                    "queue",
+                    None,
+                    [b"1", b"2", b"3", b"4"].into_iter().map(|r| r.as_slice())
+                )
+                .await
+                .unwrap(),
+            Some(3)
+        );
+        assert_eq!(
+            &read_all_records(&multi_record_log, "queue"),
+            &[
+                b"1".as_slice(),
+                b"2".as_slice(),
+                b"3".as_slice(),
+                b"4".as_slice()
+            ]
+        );
+
+        multi_record_log.truncate("queue", 0).await.unwrap();
+        assert_eq!(
+            &multi_record_log
+                .range("queue", ..)
+                .unwrap()
+                .map(|(_, payload)| payload)
+                .collect::<Vec<_>>(),
+            &[b"2".as_slice(), b"3".as_slice(), b"4".as_slice()]
+        )
+    }
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        multi_record_log.truncate("queue", 1).await.unwrap();
+
+        assert_eq!(
+            &multi_record_log
+                .range("queue", ..)
+                .unwrap()
+                .map(|(_, payload)| payload)
+                .collect::<Vec<_>>(),
+            &[b"3".as_slice(), b"4".as_slice()]
+        )
+    }
+    {
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        assert_eq!(
+            &multi_record_log
+                .range("queue", ..)
+                .unwrap()
+                .map(|(_, payload)| payload)
+                .collect::<Vec<_>>(),
+            &[b"3".as_slice(), b"4".as_slice()]
+        )
+    }
+}
+
+#[tokio::test]
 async fn test_truncate_range_correct_pos() {
     let tempdir = tempfile::tempdir().unwrap();
     {
