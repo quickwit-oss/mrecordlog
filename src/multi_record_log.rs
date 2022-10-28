@@ -7,7 +7,7 @@ use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, ReadRecordError, TruncateError,
 };
 use crate::mem;
-use crate::record::MultiPlexedRecord;
+use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
 
@@ -92,6 +92,18 @@ impl MultiRecordLog {
                         in_mem_queues
                             .append_record(queue, &file_number, position, payload)
                             .map_err(|_| ReadRecordError::Corruption)?;
+                    }
+                    MultiPlexedRecord::AppendRecords {
+                        queue,
+                        records,
+                        position: _,
+                    } => {
+                        for record in records {
+                            let (position, payload) = record.ok_or(ReadRecordError::Corruption)?;
+                            in_mem_queues
+                                .append_record(queue, &file_number, position, payload)
+                                .map_err(|_| ReadRecordError::Corruption)?;
+                        }
                     }
                     MultiPlexedRecord::Truncate { position, queue } => {
                         in_mem_queues.truncate(queue, position);
@@ -186,6 +198,51 @@ impl MultiRecordLog {
         self.in_mem_queues
             .append_record(queue, &file_number, position, payload)?;
         Ok(Some(position))
+    }
+
+    pub async fn append_records<'a, T: Iterator<Item = &'a [u8]>>(
+        &mut self,
+        queue: &str,
+        position_opt: Option<u64>,
+        payloads: T,
+    ) -> Result<Option<u64>, AppendError> {
+        let next_position = self.in_mem_queues.next_position(queue)?;
+        if let Some(position) = position_opt {
+            if position > next_position {
+                return Err(AppendError::Future);
+            } else if position + 1 == next_position {
+                return Ok(None);
+            } else if position < next_position {
+                return Err(AppendError::Past);
+            }
+        }
+        let position = position_opt.unwrap_or(next_position);
+        let file_number = self.record_log_writer.current_file().clone();
+
+        let records = MultiRecord::serialize(payloads, position);
+        if records.is_empty() {
+            // empty transaction: don't persist it
+            return Ok(None);
+        }
+
+        let records = MultiRecord::new_unchecked(&records);
+        let record = MultiPlexedRecord::AppendRecords {
+            position,
+            queue,
+            records,
+        };
+        self.record_log_writer.write_record(record).await?;
+        self.sync_on_policy().await?;
+
+        let mut max_position = position;
+        for record in records {
+            // we just serialized it, we know it's valid
+            let (position, payload) = record.unwrap();
+            self.in_mem_queues
+                .append_record(queue, &file_number, position, payload)?;
+            max_position = position;
+        }
+        Ok(Some(max_position))
     }
 
     async fn touch_empty_queues(&mut self) -> Result<(), TruncateError> {
