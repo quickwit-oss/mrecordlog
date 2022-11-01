@@ -184,3 +184,58 @@ async fn test_multi_record_position_known_after_truncate() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_truncate_range_correct_pos() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        multi_record_log.create_queue("queue").await.unwrap();
+        assert_eq!(
+            multi_record_log
+                .append_record("queue", None, b"1")
+                .await
+                .unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            multi_record_log
+                .append_record("queue", None, b"2")
+                .await
+                .unwrap(),
+            Some(1)
+        );
+        multi_record_log.truncate("queue", 1).await.unwrap();
+        assert_eq!(
+            multi_record_log
+                .append_record("queue", None, b"3")
+                .await
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            multi_record_log
+                .range("queue", ..)
+                .unwrap()
+                .collect::<Vec<_>>(),
+            &[(2, &b"3"[..])]
+        );
+
+        assert_eq!(
+            multi_record_log
+                .range("queue", 2..)
+                .unwrap()
+                .collect::<Vec<_>>(),
+            &[(2, &b"3"[..])]
+        );
+
+        use std::ops::Bound;
+        assert_eq!(
+            multi_record_log
+                .range("queue", (Bound::Excluded(1), Bound::Unbounded))
+                .unwrap()
+                .collect::<Vec<_>>(),
+            &[(2, &b"3"[..])]
+        );
+    }
+}
