@@ -1,5 +1,6 @@
 use std::convert::{TryFrom, TryInto};
 
+use crate::error::MultiRecordCorruption;
 use crate::Serializable;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -124,7 +125,7 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
             RecordType::AppendRecords => Some(MultiPlexedRecord::AppendRecords {
                 queue,
                 position,
-                records: MultiRecord::new(payload)?,
+                records: MultiRecord::new(payload).ok()?,
             }),
             RecordType::Truncate => Some(MultiPlexedRecord::Truncate { queue, position }),
             RecordType::Touch => Some(MultiPlexedRecord::Touch { queue, position }),
@@ -136,14 +137,14 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct MultiRecord<'a> {
     buffer: &'a [u8],
-    position: usize,
+    byte_offset: usize,
 }
 
 impl<'a> MultiRecord<'a> {
-    pub fn new(buffer: &[u8]) -> Option<MultiRecord> {
+    pub fn new(buffer: &[u8]) -> Result<MultiRecord, MultiRecordCorruption> {
         let mut mrecord = MultiRecord {
             buffer,
-            position: 0,
+            byte_offset: 0,
         };
         // verify the content is not corrupted
         for record in mrecord {
@@ -152,61 +153,62 @@ impl<'a> MultiRecord<'a> {
 
         mrecord.reset_position();
 
-        Some(mrecord)
+        Ok(mrecord)
     }
 
     pub fn new_unchecked(buffer: &[u8]) -> MultiRecord {
         MultiRecord {
             buffer,
-            position: 0,
+            byte_offset: 0,
         }
     }
 
     pub fn serialize<'b, T: Iterator<Item = &'b [u8]>>(items: T, mut position: u64) -> Vec<u8> {
         let mut res = Vec::new();
         for item in items {
+            assert!(item.len() <= u16::MAX as usize);
             res.extend_from_slice(&position.to_le_bytes());
             position += 1;
-            res.extend_from_slice(&item.len().to_le_bytes());
+            res.extend_from_slice(&(item.len() as u16).to_le_bytes());
             res.extend_from_slice(item);
         }
         res
     }
 
     pub fn reset_position(&mut self) {
-        self.position = 0;
+        self.byte_offset = 0;
     }
 }
 
 impl<'a> Iterator for MultiRecord<'a> {
-    type Item = Option<(u64, &'a [u8])>;
+    type Item = Result<(u64, &'a [u8]), MultiRecordCorruption>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.position == self.buffer.len() {
+        if self.byte_offset == self.buffer.len() {
             // no more record
             return None;
         }
 
-        let buffer = &self.buffer[self.position..];
-        if buffer.len() < 16 {
+        let buffer = &self.buffer[self.byte_offset..];
+        if buffer.len() < 10 {
             // too short: corrupted
-            self.position = buffer.len();
-            return Some(None);
+            self.byte_offset = buffer.len();
+            return Some(Err(MultiRecordCorruption));
         }
 
         let position = u64::from_le_bytes(buffer[0..8].try_into().unwrap());
-        let len = u64::from_le_bytes(buffer[8..16].try_into().unwrap()) as usize;
+        let len = u16::from_le_bytes(buffer[8..10].try_into().unwrap()) as usize;
 
-        let buffer = &buffer[16..];
+        let buffer = &buffer[10..];
 
         if buffer.len() < len {
-            self.position = buffer.len();
-            return Some(None);
+            self.byte_offset = buffer.len();
+            return Some(Err(MultiRecordCorruption));
         }
 
-        self.position += 16 + len;
+        self.byte_offset += 10 + len;
 
-        Some(Some((position, &buffer[..len])))
+        Some(Ok((position, &buffer[..len])))
     }
 }
 

@@ -102,7 +102,11 @@ impl PropTestEnv {
 
         let res = self
             .record_log
-            .append_records(queue, Some(range.end), (0..count).map(|_| &[] as &[u8]))
+            .append_records(
+                queue,
+                Some(range.end),
+                std::iter::repeat(&b""[..]).take(count as usize),
+            )
             .await
             .unwrap();
 

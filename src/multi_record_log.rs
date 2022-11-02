@@ -99,7 +99,7 @@ impl MultiRecordLog {
                         position: _,
                     } => {
                         for record in records {
-                            let (position, payload) = record.ok_or(ReadRecordError::Corruption)?;
+                            let (position, payload) = record?;
                             in_mem_queues
                                 .append_record(queue, &file_number, position, payload)
                                 .map_err(|_| ReadRecordError::Corruption)?;
