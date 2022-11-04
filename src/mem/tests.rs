@@ -155,7 +155,7 @@ fn test_mem_queues_kee_filenum() {
 
     let files = (0..3)
         .into_iter()
-        .map(|n| FileNumber::for_test(n))
+        .map(FileNumber::for_test)
         .collect::<Vec<_>>();
 
     assert!(files.iter().all(FileNumber::can_be_deleted));
