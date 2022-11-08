@@ -4,7 +4,7 @@ use crate::error::MultiRecordCorruption;
 use crate::Serializable;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum MultiPlexedRecord<'a> {
+pub(crate) enum MultiPlexedRecord<'a> {
     /// Adds a new record to a specific queue.
     AppendRecord {
         queue: &'a str,
@@ -135,17 +135,15 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct MultiRecord<'a> {
+pub(crate) struct MultiRecord<'a> {
     buffer: &'a [u8],
     byte_offset: usize,
 }
 
 impl<'a> MultiRecord<'a> {
     pub fn new(buffer: &[u8]) -> Result<MultiRecord, MultiRecordCorruption> {
-        let mut mrecord = MultiRecord {
-            buffer,
-            byte_offset: 0,
-        };
+        let mut mrecord = MultiRecord::new_unchecked(buffer);
+
         // verify the content is not corrupted
         for record in mrecord {
             record?;
@@ -163,14 +161,17 @@ impl<'a> MultiRecord<'a> {
         }
     }
 
-    pub fn serialize<'b, T: Iterator<Item = &'b [u8]>>(items: T, mut position: u64) -> Vec<u8> {
+    pub fn serialize<'b, T: Iterator<Item = &'b [u8]>>(
+        record_payloads: T,
+        mut position: u64,
+    ) -> Vec<u8> {
         let mut res = Vec::new();
-        for item in items {
-            assert!(item.len() <= u16::MAX as usize);
+        for record_payload in record_payloads {
+            assert!(record_payload.len() <= u16::MAX as usize);
             res.extend_from_slice(&position.to_le_bytes());
             position += 1;
-            res.extend_from_slice(&(item.len() as u16).to_le_bytes());
-            res.extend_from_slice(item);
+            res.extend_from_slice(&(record_payload.len() as u16).to_le_bytes());
+            res.extend_from_slice(record_payload);
         }
         res
     }
