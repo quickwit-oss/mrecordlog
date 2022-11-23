@@ -53,7 +53,7 @@ impl PropTestEnv {
     }
 
     pub async fn reload(&mut self) {
-        self.record_log = MultiRecordLog::open(&self.tempdir.path()).await.unwrap();
+        self.record_log = MultiRecordLog::open(self.tempdir.path()).await.unwrap();
         for (queue, range) in &self.state {
             assert_eq!(
                 self.record_log.range(queue, ..).unwrap().count() as u64,

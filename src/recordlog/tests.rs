@@ -1,5 +1,3 @@
-use std::iter;
-
 use super::{RecordReader, RecordWriter};
 use crate::block_read_write::ArrayReader;
 use crate::error::ReadRecordError;
@@ -40,7 +38,7 @@ async fn test_simple_record() {
 }
 
 fn make_long_entry(len: usize) -> String {
-    iter::repeat('A').take(len).collect()
+    "A".repeat(len)
 }
 
 #[tokio::test]

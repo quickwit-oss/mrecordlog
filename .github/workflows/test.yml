@@ -1,0 +1,68 @@
+name: Unit tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install nightly
+      uses: actions-rs/toolchain@v1
+      with:
+            toolchain: nightly
+            profile: minimal
+            components: rustfmt
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+            toolchain: stable
+            profile: minimal
+            components: clippy
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Check Formatting
+      run: cargo +nightly fmt --all -- --check
+
+    - uses: actions-rs/clippy-check@v1
+      with:
+        toolchain: stable
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --tests
+
+  test:
+
+    runs-on: ubuntu-latest
+
+    name: test
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install stable
+      uses: actions-rs/toolchain@v1
+      with:
+            toolchain: stable
+            profile: minimal
+            override: true
+
+    - uses: taiki-e/install-action@nextest
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Run tests
+      run: cargo +stable nextest run --verbose
+
+    - name: Run doctests
+      run: cargo +stable test --doc --verbose
+
