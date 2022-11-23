@@ -40,6 +40,9 @@ impl PropTestEnv {
             Operation::Append { queue } => {
                 self.append(queue).await;
             }
+            Operation::MultiAppend { queue, count } => {
+                self.multi_append(queue, count).await;
+            }
             Operation::RedundantAppend { queue } => {
                 self.double_append(queue).await;
             }
@@ -94,6 +97,26 @@ impl PropTestEnv {
         range.end += 1;
     }
 
+    pub async fn multi_append(&mut self, queue: &str, count: u64) {
+        let range = self.state.get_mut(queue).unwrap();
+
+        let res = self
+            .record_log
+            .append_records(
+                queue,
+                Some(range.end),
+                std::iter::repeat(&b""[..]).take(count as usize),
+            )
+            .await
+            .unwrap();
+
+        if count != 0 {
+            let res = res.unwrap();
+            assert_eq!(range.end + count - 1, res);
+            range.end += count;
+        }
+    }
+
     pub async fn truncate(&mut self, queue: &str, pos: u64) {
         let range = self.state.get_mut(queue).unwrap();
         if range.contains(&pos) {
@@ -120,7 +143,9 @@ fn operation_strategy() -> impl Strategy<Value = Operation> {
         queue_strategy().prop_map(|queue| Operation::Append { queue }),
         queue_strategy().prop_map(|queue| Operation::RedundantAppend { queue }),
         (queue_strategy(), (0u64..10u64))
-            .prop_map(|(queue, pos)| Operation::Truncate { queue, pos })
+            .prop_map(|(queue, pos)| Operation::Truncate { queue, pos }),
+        (queue_strategy(), (0u64..10u64))
+            .prop_map(|(queue, count)| Operation::MultiAppend { queue, count }),
     ]
 }
 
@@ -179,6 +204,7 @@ proptest::proptest! {
 enum Operation {
     Reopen,
     Append { queue: &'static str },
+    MultiAppend { queue: &'static str, count: u64 },
     RedundantAppend { queue: &'static str },
     Truncate { queue: &'static str, pos: u64 },
 }

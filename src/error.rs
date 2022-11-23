@@ -37,6 +37,16 @@ impl From<MissingQueue> for DeleteQueueError {
 #[error("TouchError")]
 pub struct TouchError;
 
+#[derive(Debug, Error)]
+#[error("MultiRecordCorruption")]
+pub struct MultiRecordCorruption;
+
+impl From<MultiRecordCorruption> for ReadRecordError {
+    fn from(_: MultiRecordCorruption) -> ReadRecordError {
+        ReadRecordError::Corruption
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum TruncateError {
     #[error("Missing queue: {0}")]
