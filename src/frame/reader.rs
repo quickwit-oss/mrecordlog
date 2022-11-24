@@ -53,7 +53,10 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
         if !need_to_skip_block {
             return Ok(());
         }
-        self.reader.next_block().await?;
+        if !self.reader.next_block().await? {
+            return Err(ReadFrameError::NotAvailable);
+        }
+
         self.cursor = 0;
         self.block_corrupted = false;
         Ok(())
