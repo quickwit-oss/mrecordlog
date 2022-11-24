@@ -5,12 +5,6 @@ use crate::Serializable;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(crate) enum MultiPlexedRecord<'a> {
-    /// Adds a new record to a specific queue.
-    AppendRecord {
-        queue: &'a str,
-        position: u64,
-        payload: &'a [u8],
-    },
     /// Adds multiple records to a specific queue.
     AppendRecords {
         queue: &'a str,
@@ -33,7 +27,6 @@ pub(crate) enum MultiPlexedRecord<'a> {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
 enum RecordType {
-    AppendRecord = 0,
     Truncate = 1,
     Touch = 2,
     DeleteQueue = 3,
@@ -45,7 +38,6 @@ impl TryFrom<u8> for RecordType {
 
     fn try_from(code: u8) -> Result<Self, Self::Error> {
         match code {
-            0 => Ok(RecordType::AppendRecord),
             1 => Ok(RecordType::Truncate),
             2 => Ok(RecordType::Touch),
             3 => Ok(RecordType::DeleteQueue),
@@ -74,13 +66,6 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
     fn serialize(&self, buffer: &mut Vec<u8>) {
         buffer.clear();
         match *self {
-            MultiPlexedRecord::AppendRecord {
-                position,
-                queue,
-                payload,
-            } => {
-                serialize(RecordType::AppendRecord, position, queue, payload, buffer);
-            }
             MultiPlexedRecord::AppendRecords {
                 position,
                 queue,
@@ -117,11 +102,6 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
         let queue = std::str::from_utf8(&buffer[11..][..queue_len]).ok()?;
         let payload = &buffer[11 + queue_len..];
         match enum_tag {
-            RecordType::AppendRecord => Some(MultiPlexedRecord::AppendRecord {
-                queue,
-                position,
-                payload,
-            }),
             RecordType::AppendRecords => Some(MultiPlexedRecord::AppendRecords {
                 queue,
                 position,
@@ -234,6 +214,6 @@ mod tests {
                 num_record_types += 1;
             }
         }
-        assert_eq!(num_record_types, 5);
+        assert_eq!(num_record_types, 4);
     }
 }
