@@ -87,8 +87,13 @@ impl MultiRecordLog {
                     MultiPlexedRecord::AppendRecords {
                         queue,
                         records,
-                        position: _,
+                        position,
                     } => {
+                        if !in_mem_queues.contains_queue(queue) {
+                            in_mem_queues
+                                .touch(queue, position, &file_number)
+                                .map_err(|_| ReadRecordError::Corruption)?;
+                        }
                         for record in records {
                             let (position, payload) = record?;
                             in_mem_queues
