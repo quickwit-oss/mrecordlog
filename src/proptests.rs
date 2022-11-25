@@ -11,7 +11,7 @@ use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::{MultiRecordLog, Serializable};
 
 struct PropTestEnv {
-    tempdir: std::mem::ManuallyDrop<TempDir>,
+    tempdir: TempDir,
     record_log: MultiRecordLog,
     state: HashMap<&'static str, Range<u64>>,
     block_to_write: Vec<u8>,
@@ -20,7 +20,6 @@ struct PropTestEnv {
 impl PropTestEnv {
     pub async fn new(block_size: usize) -> Self {
         let tempdir = tempfile::tempdir().unwrap();
-        eprintln!("testpath: {}", tempdir.path().display());
         let mut record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         record_log.create_queue("q1").await.unwrap();
         record_log.create_queue("q2").await.unwrap();
@@ -28,7 +27,7 @@ impl PropTestEnv {
         state.insert("q1", 0..0);
         state.insert("q2", 0..0);
         PropTestEnv {
-            tempdir: std::mem::ManuallyDrop::new(tempdir),
+            tempdir,
             record_log,
             state,
             block_to_write: vec![b'A'; block_size],
@@ -67,14 +66,14 @@ impl PropTestEnv {
 
         let res = self
             .record_log
-            .append_record(queue, Some(range.end), &b"BB"[..])
+            .append_records(queue, Some(range.end), std::iter::once(&b"BB"[..]))
             .await
             .unwrap()
             .unwrap();
 
         assert!(self
             .record_log
-            .append_record(queue, Some(range.end), &[])
+            .append_records(queue, Some(range.end), std::iter::once(&b"BB"[..]))
             .await
             .unwrap()
             .is_none());
