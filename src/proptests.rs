@@ -187,6 +187,35 @@ fn test_scenario_end_on_full_file() {
     });
 }
 
+#[test]
+fn test_scenario_big_records() {
+    use Operation::*;
+    let ops = [
+        MultiAppend {
+            queue: "q1",
+            count: 2,
+        },
+        MultiAppend {
+            queue: "q2",
+            count: 4,
+        },
+        Reopen,
+        MultiAppend {
+            queue: "q2",
+            count: 1,
+        },
+        Reopen,
+        RedundantAppend { queue: "q2" },
+        Reopen,
+    ];
+    Runtime::new().unwrap().block_on(async {
+        let mut env = PropTestEnv::new(1 << 26).await;
+        for op in ops {
+            env.apply(op).await;
+        }
+    });
+}
+
 proptest::proptest! {
     #[test]
     fn test_proptest_multirecord((ops, block_size) in (operations_strategy(), 0usize..65535)) {
