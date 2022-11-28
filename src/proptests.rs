@@ -209,7 +209,7 @@ proptest::proptest! {
             assert!(records
                         .map(|record| record.unwrap().1)
                         .zip(payload)
-                        .all(|(record, payload)| record == &payload));
+                        .all(|(record, payload)| record == payload));
         }
     }
 }
