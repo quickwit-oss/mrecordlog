@@ -7,7 +7,7 @@ use proptest::strategy::{Just, Strategy};
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
-use crate::record::MultiPlexedRecord;
+use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::{MultiRecordLog, Serializable};
 
 struct PropTestEnv {
@@ -157,6 +157,13 @@ fn random_bytevec_strategy(max_len: usize) -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(proptest::num::u8::ANY, 0..max_len)
 }
 
+fn random_multi_record_strategy(
+    max_record_count: usize,
+    max_len: usize,
+) -> impl Strategy<Value = Vec<Vec<u8>>> {
+    prop::collection::vec(random_bytevec_strategy(max_len), 1..max_record_count)
+}
+
 proptest::proptest! {
     #[test]
     fn test_proptest_multirecord(ops in operations_strategy()) {
@@ -171,17 +178,18 @@ proptest::proptest! {
     #[test]
     fn test_proptest_multiplexed_record_roundtrip((kind, queue, position, payload) in
         (proptest::num::u8::ANY, random_bytevec_strategy(65536),
-        proptest::num::u64::ANY, random_bytevec_strategy(65536))) {
+        proptest::num::u64::ANY, random_multi_record_strategy(64, 65536))) {
         let queue = match String::from_utf8(queue) {
             Ok(queue) => queue,
             Err(_) => return Ok(()),
         };
         let queue = &queue;
+        let multirecord_payload = MultiRecord::serialize(payload.iter().map(|p| p.as_ref()), position);
         let record = match kind%4 {
-            0 => MultiPlexedRecord::AppendRecord {
+            0 => MultiPlexedRecord::AppendRecords {
                 queue,
                 position,
-                payload: &payload,
+                records: MultiRecord::new(&multirecord_payload).unwrap(),
             },
             1 => MultiPlexedRecord::Truncate {
                 queue,
@@ -197,6 +205,12 @@ proptest::proptest! {
 
         let deser = MultiPlexedRecord::deserialize(&buffer).unwrap();
         assert_eq!(record, deser);
+        if let MultiPlexedRecord::AppendRecords { records, .. } = deser {
+            assert!(records
+                        .map(|record| record.unwrap().1)
+                        .zip(payload)
+                        .all(|(record, payload)| record == payload));
+        }
     }
 }
 

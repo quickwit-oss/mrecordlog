@@ -84,15 +84,6 @@ impl MultiRecordLog {
             let file_number = record_reader.read().current_file().clone();
             if let Some(record) = record_reader.read_record().await? {
                 match record {
-                    MultiPlexedRecord::AppendRecord {
-                        position,
-                        queue,
-                        payload,
-                    } => {
-                        in_mem_queues
-                            .append_record(queue, &file_number, position, payload)
-                            .map_err(|_| ReadRecordError::Corruption)?;
-                    }
                     MultiPlexedRecord::AppendRecords {
                         queue,
                         records,
@@ -176,30 +167,16 @@ impl MultiRecordLog {
         position_opt: Option<u64>,
         payload: &[u8],
     ) -> Result<Option<u64>, AppendError> {
-        let next_position = self.in_mem_queues.next_position(queue)?;
-        if let Some(position) = position_opt {
-            if position > next_position {
-                return Err(AppendError::Future);
-            } else if position + 1 == next_position {
-                return Ok(None);
-            } else if position < next_position {
-                return Err(AppendError::Past);
-            }
-        }
-        let position = position_opt.unwrap_or(next_position);
-        let file_number = self.record_log_writer.current_file().clone();
-        let record = MultiPlexedRecord::AppendRecord {
-            position,
-            queue,
-            payload,
-        };
-        self.record_log_writer.write_record(record).await?;
-        self.sync_on_policy().await?;
-        self.in_mem_queues
-            .append_record(queue, &file_number, position, payload)?;
-        Ok(Some(position))
+        self.append_records(queue, position_opt, std::iter::once(payload))
+            .await
     }
 
+    /// Appends multiple records to the log.
+    ///
+    /// This operation is atomic: either all records get stored, or none do.
+    /// However this function succeeding does not necessarily means records where stored, be sure
+    /// to call [`Self::sync`] to make sure changes are persisted if you don't use
+    /// [`SyncPolicy::OnAppend`] (which is the default).
     pub async fn append_records<'a, T: Iterator<Item = &'a [u8]>>(
         &mut self,
         queue: &str,
