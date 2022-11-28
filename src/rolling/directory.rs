@@ -111,7 +111,7 @@ pub struct RollingReader {
     file: File,
     directory: Directory,
     file_number: FileNumber,
-    block_id: usize, //< number of the next block to read.
+    block_id: usize,
     block: Box<[u8; BLOCK_NUM_BYTES]>,
 }
 
@@ -182,7 +182,7 @@ impl BlockRead for RollingReader {
             let mut next_file: File = self.directory.open_file(&next_file_number).await?;
             let success = read_block(&mut next_file, &mut self.block).await?;
             if success {
-                self.block_id += 1;
+                self.block_id = 0;
                 self.file = next_file;
                 self.file_number = next_file_number;
                 return Ok(true);

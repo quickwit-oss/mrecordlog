@@ -14,10 +14,11 @@ struct PropTestEnv {
     tempdir: TempDir,
     record_log: MultiRecordLog,
     state: HashMap<&'static str, Range<u64>>,
+    block_to_write: Vec<u8>,
 }
 
 impl PropTestEnv {
-    pub async fn new() -> Self {
+    pub async fn new(block_size: usize) -> Self {
         let tempdir = tempfile::tempdir().unwrap();
         let mut record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         record_log.create_queue("q1").await.unwrap();
@@ -29,6 +30,7 @@ impl PropTestEnv {
             tempdir,
             record_log,
             state,
+            block_to_write: vec![b'A'; block_size],
         }
     }
 
@@ -36,9 +38,6 @@ impl PropTestEnv {
         match op {
             Operation::Reopen => {
                 self.reload().await;
-            }
-            Operation::Append { queue } => {
-                self.append(queue).await;
             }
             Operation::MultiAppend { queue, count } => {
                 self.multi_append(queue, count).await;
@@ -62,33 +61,19 @@ impl PropTestEnv {
         }
     }
 
-    pub async fn append(&mut self, queue: &str) {
-        let range = self.state.get_mut(queue).unwrap();
-
-        let res = self
-            .record_log
-            .append_record(queue, Some(range.end), &[])
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(range.end, res);
-        range.end += 1;
-    }
-
     pub async fn double_append(&mut self, queue: &str) {
         let range = self.state.get_mut(queue).unwrap();
 
         let res = self
             .record_log
-            .append_record(queue, Some(range.end), &[])
+            .append_records(queue, Some(range.end), std::iter::once(&b"BB"[..]))
             .await
             .unwrap()
             .unwrap();
 
         assert!(self
             .record_log
-            .append_record(queue, Some(range.end), &[])
+            .append_records(queue, Some(range.end), std::iter::once(&b"BB"[..]))
             .await
             .unwrap()
             .is_none());
@@ -105,7 +90,7 @@ impl PropTestEnv {
             .append_records(
                 queue,
                 Some(range.end),
-                std::iter::repeat(&b""[..]).take(count as usize),
+                std::iter::repeat(&self.block_to_write[..]).take(count as usize),
             )
             .await
             .unwrap();
@@ -140,7 +125,6 @@ fn queue_strategy() -> impl Strategy<Value = &'static str> {
 fn operation_strategy() -> impl Strategy<Value = Operation> {
     prop_oneof![
         Just(Operation::Reopen),
-        queue_strategy().prop_map(|queue| Operation::Append { queue }),
         queue_strategy().prop_map(|queue| Operation::RedundantAppend { queue }),
         (queue_strategy(), (0u64..10u64))
             .prop_map(|(queue, pos)| Operation::Truncate { queue, pos }),
@@ -164,11 +148,50 @@ fn random_multi_record_strategy(
     prop::collection::vec(random_bytevec_strategy(max_len), 1..max_record_count)
 }
 
+#[test]
+fn test_scenario_end_on_full_file() {
+    use Operation::*;
+    let ops = [
+        MultiAppend {
+            queue: "q1",
+            count: 1,
+        },
+        MultiAppend {
+            queue: "q1",
+            count: 1,
+        },
+        MultiAppend {
+            queue: "q2",
+            count: 1,
+        },
+        MultiAppend {
+            queue: "q2",
+            count: 1,
+        },
+        MultiAppend {
+            queue: "q2",
+            count: 1,
+        },
+        Reopen,
+        RedundantAppend { queue: "q2" },
+        Reopen,
+    ];
+    Runtime::new().unwrap().block_on(async {
+        // this value is crafted to make so exactly two full files are stored,
+        // but no 3rd is created: if anything about the format change, this test
+        // will become useless (but won't fail spuriously).
+        let mut env = PropTestEnv::new(52381).await;
+        for op in ops {
+            env.apply(op).await;
+        }
+    });
+}
+
 proptest::proptest! {
     #[test]
-    fn test_proptest_multirecord(ops in operations_strategy()) {
+    fn test_proptest_multirecord((ops, block_size) in (operations_strategy(), 0usize..65535)) {
         Runtime::new().unwrap().block_on(async {
-            let mut env = PropTestEnv::new().await;
+            let mut env = PropTestEnv::new(block_size).await;
             for op in ops {
                 env.apply(op).await;
             }
@@ -217,7 +240,6 @@ proptest::proptest! {
 #[derive(Debug, Clone)]
 enum Operation {
     Reopen,
-    Append { queue: &'static str },
     MultiAppend { queue: &'static str, count: u64 },
     RedundantAppend { queue: &'static str },
     Truncate { queue: &'static str, pos: u64 },
