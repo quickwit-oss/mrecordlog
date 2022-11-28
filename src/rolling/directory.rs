@@ -111,7 +111,7 @@ pub struct RollingReader {
     file: File,
     directory: Directory,
     file_number: FileNumber,
-    block_id: usize, //< number of the next block to read.
+    block_id: usize,
     block: Box<[u8; BLOCK_NUM_BYTES]>,
 }
 
@@ -127,7 +127,7 @@ impl RollingReader {
             file,
             directory,
             file_number: first_file.clone(),
-            block_id: 1,
+            block_id: 0,
             block,
         })
     }
@@ -140,7 +140,7 @@ impl RollingReader {
     ///
     /// If no block was read, positions itself at the beginning.
     pub async fn into_writer(mut self) -> io::Result<RollingWriter> {
-        let offset = (self.block_id - 1) * crate::BLOCK_NUM_BYTES;
+        let offset = self.block_id * crate::BLOCK_NUM_BYTES;
         self.file.seek(SeekFrom::Start(offset as u64)).await?;
         Ok(RollingWriter {
             file: BufWriter::with_capacity(FRAME_NUM_BYTES, self.file),
@@ -182,7 +182,7 @@ impl BlockRead for RollingReader {
             let mut next_file: File = self.directory.open_file(&next_file_number).await?;
             let success = read_block(&mut next_file, &mut self.block).await?;
             if success {
-                self.block_id = 1;
+                self.block_id = 0;
                 self.file = next_file;
                 self.file_number = next_file_number;
                 return Ok(true);
