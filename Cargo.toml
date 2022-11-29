@@ -19,4 +19,8 @@ tempfile = "3"
 futures = "0.3"
 rand = "0.8"
 proptest = "1"
+criterion = { version = "0.4", features = ["async_tokio"] }
 
+[[bench]]
+name = "bench"
+harness = false
