@@ -122,7 +122,7 @@ fn test_mem_queues_append_in_the_past_yield_error() {
 }
 
 #[test]
-fn test_mem_queues_append_nilpotence() {
+fn test_mem_queues_append_idempotence() {
     let mut mem_queues = MemQueues::default();
     mem_queues.create_queue("droopy").unwrap();
     assert!(mem_queues
