@@ -153,10 +153,10 @@ impl<'a> MultiRecord<'a> {
     ) -> Vec<u8> {
         let mut res = Vec::new();
         for (position, record_payload) in record_payloads {
-            assert!(record_payload.len() <= u16::MAX as usize);
+            assert!(record_payload.len() <= u32::MAX as usize);
             // TODO add assert for position monotonicity?
             res.extend_from_slice(&position.to_le_bytes());
-            res.extend_from_slice(&(record_payload.len() as u16).to_le_bytes());
+            res.extend_from_slice(&(record_payload.len() as u32).to_le_bytes());
             res.extend_from_slice(record_payload);
         }
         res
@@ -184,16 +184,16 @@ impl<'a> Iterator for MultiRecord<'a> {
         }
 
         let position = u64::from_le_bytes(buffer[0..8].try_into().unwrap());
-        let len = u16::from_le_bytes(buffer[8..10].try_into().unwrap()) as usize;
+        let len = u32::from_le_bytes(buffer[8..12].try_into().unwrap()) as usize;
 
-        let buffer = &buffer[10..];
+        let buffer = &buffer[12..];
 
         if buffer.len() < len {
             self.byte_offset = buffer.len();
             return Some(Err(MultiRecordCorruption));
         }
 
-        self.byte_offset += 10 + len;
+        self.byte_offset += 12 + len;
 
         Some(Ok((position, &buffer[..len])))
     }

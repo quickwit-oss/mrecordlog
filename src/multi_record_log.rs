@@ -163,7 +163,7 @@ impl MultiRecordLog {
 
     /// Appends a record to the log.
     ///
-    /// The local_position argument can optionally be passed to enforce nilpotence.
+    /// The local_position argument can optionally be passed to enforce idempotence.
     /// TODO if an io Error is encounterred, the in mem queue and the record log will
     /// be in an inconsistent state.
     pub async fn append_record(
