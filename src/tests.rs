@@ -302,3 +302,24 @@ async fn test_truncate_range_correct_pos() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_multi_record_size() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        assert_eq!(multi_record_log.in_memory_size(), 0);
+        multi_record_log.create_queue("queue").await.unwrap();
+        let size_mem_create = multi_record_log.in_memory_size();
+        assert!(size_mem_create > 0);
+        multi_record_log
+            .append_record("queue", None, b"hello")
+            .await
+            .unwrap();
+        let size_mem_append = multi_record_log.in_memory_size();
+        assert!(size_mem_append > size_mem_create);
+        multi_record_log.truncate("queue", 0).await.unwrap();
+        let size_mem_truncate = multi_record_log.in_memory_size();
+        assert!(size_mem_truncate < size_mem_append);
+    }
+}

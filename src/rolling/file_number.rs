@@ -71,6 +71,11 @@ impl FileTracker {
 
         Some(FileTracker { files })
     }
+
+    /// Return the number of file tracked.
+    pub fn count(&self) -> usize {
+        self.files.len()
+    }
 }
 
 #[derive(Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]

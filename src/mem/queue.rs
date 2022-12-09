@@ -170,4 +170,9 @@ impl MemQueue {
         self.concatenated_records.drain(..start_offset_to_keep);
         self.start_position += first_record_to_keep as u64;
     }
+
+    pub fn size(&self) -> usize {
+        self.concatenated_records.len()
+            + self.record_metas.len() * std::mem::size_of::<RecordMeta>()
+    }
 }

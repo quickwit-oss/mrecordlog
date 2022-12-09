@@ -282,4 +282,18 @@ impl MultiRecordLog {
     pub async fn sync(&mut self) -> io::Result<()> {
         self.record_log_writer.flush().await
     }
+
+    /// Returns the quantity of data stored in the in memory queue.
+    pub fn in_memory_size(&self) -> usize {
+        self.in_mem_queues.size()
+    }
+
+    /// Returns the used disk space.
+    ///
+    /// This is typically higher than what [`Self::in_memory_size`] reports as records are first
+    /// marked as truncated, and only get deleted once all other records in the same file are
+    /// truncated too.
+    pub fn on_disk_size(&self) -> usize {
+        self.record_log_writer.size()
+    }
 }
