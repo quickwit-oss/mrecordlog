@@ -130,4 +130,11 @@ impl MemQueues {
     pub fn truncate(&mut self, queue: &str, position: u64) {
         self.get_or_create_queue_mut(queue).truncate(position);
     }
+
+    pub fn size(&self) -> usize {
+        self.queues
+            .iter()
+            .map(|(name, queue)| name.len() + queue.size())
+            .sum()
+    }
 }

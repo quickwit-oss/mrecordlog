@@ -225,6 +225,10 @@ impl RollingWriter {
         &self.file_number
     }
 
+    pub fn size(&self) -> usize {
+        self.directory.files.count() * FILE_NUM_BYTES
+    }
+
     #[cfg(test)]
     pub fn list_file_numbers(&self) -> Vec<u64> {
         self.directory

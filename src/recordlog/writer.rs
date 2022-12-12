@@ -89,6 +89,10 @@ impl RecordWriter<RollingWriter> {
     pub fn current_file(&mut self) -> &FileNumber {
         self.get_underlying_wrt().current_file()
     }
+
+    pub fn size(&self) -> usize {
+        self.get_underlying_wrt().size()
+    }
 }
 
 impl RecordWriter<VecBlockWriter> {
