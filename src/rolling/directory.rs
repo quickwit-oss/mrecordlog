@@ -38,11 +38,20 @@ pub(crate) fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
 
 async fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<File> {
     let new_filepath = filepath(dir_path, file_number);
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&new_filepath)
-        .await?;
+    let mut file = if cfg!(target_os = "linux") {
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(&new_filepath)
+            .await?
+    } else {
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&new_filepath)
+            .await?
+    };
     file.set_len(FILE_NUM_BYTES as u64).await?;
     file.seek(SeekFrom::Start(0)).await?;
     Ok(file)
@@ -97,11 +106,20 @@ impl Directory {
     /// Open the wal file with the provided FileNumber.
     pub async fn open_file(&self, file_number: &FileNumber) -> io::Result<File> {
         let filepath = filepath(&self.dir, file_number);
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&filepath)
-            .await?;
+        let mut file = if cfg!(target_os = "linux") {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_DIRECT)
+                .open(&filepath)
+                .await?
+        } else {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&filepath)
+                .await?
+        };
         file.seek(SeekFrom::Start(0u64)).await?;
         Ok(file)
     }
