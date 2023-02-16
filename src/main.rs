@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         multi_record_log.create_queue("q").await?;
     }
     for (_line, payload) in multi_record_log.range("q", ..).unwrap() {
-        let line_utf8 = std::str::from_utf8(payload).unwrap();
+        let line_utf8 = std::str::from_utf8(&payload).unwrap();
         println!("BEFORE {line_utf8}");
     }
     while let Some(line) = lines.next_line().await? {

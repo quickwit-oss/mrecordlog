@@ -1,7 +1,70 @@
+use std::borrow::Cow;
+use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds};
 
 use crate::error::{AppendError, TouchError};
 use crate::rolling::FileNumber;
+
+#[derive(Default)]
+struct RollingBuffer {
+    buffer: VecDeque<u8>,
+}
+
+impl RollingBuffer {
+    fn new() -> Self {
+        RollingBuffer {
+            buffer: VecDeque::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    fn clear(&mut self) {
+        self.buffer.clear()
+    }
+
+    fn drain_start(&mut self, pos: usize) {
+        self.buffer.drain(..pos);
+    }
+
+    fn extend(&mut self, slice: &[u8]) {
+        self.buffer.extend(slice.iter().copied());
+    }
+
+    fn get_range<T: RangeBounds<usize> + std::fmt::Debug>(&self, bounds: T) -> Cow<[u8]> {
+        let start = match bounds.start_bound() {
+            Bound::Included(pos) => *pos,
+            Bound::Excluded(pos) => pos + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let end = match bounds.end_bound() {
+            Bound::Included(pos) => pos + 1,
+            Bound::Excluded(pos) => *pos,
+            Bound::Unbounded => self.len(),
+        };
+
+        let (first, second) = self.buffer.as_slices();
+
+        if end < first.len() {
+            Cow::Borrowed(&first[start..end])
+        } else if start >= first.len() {
+            let start = start - first.len();
+            let end = end - first.len();
+
+            Cow::Borrowed(&second[start..end])
+        } else {
+            let mut res = Vec::with_capacity(end - start);
+            res.extend_from_slice(&first[start..]);
+            let end = end - first.len();
+            res.extend_from_slice(&second[..end]);
+
+            Cow::Owned(res)
+        }
+    }
+}
 
 #[derive(Clone)]
 struct RecordMeta {
@@ -14,7 +77,7 @@ struct RecordMeta {
 #[derive(Default)]
 pub struct MemQueue {
     // Concatenated records
-    concatenated_records: Vec<u8>,
+    concatenated_records: RollingBuffer,
     start_position: u64,
     record_metas: Vec<RecordMeta>,
     last_touch: Option<FileNumber>,
@@ -23,7 +86,7 @@ pub struct MemQueue {
 impl MemQueue {
     pub fn with_next_position(next_position: u64, last_touch: FileNumber) -> Self {
         MemQueue {
-            concatenated_records: Vec::new(),
+            concatenated_records: RollingBuffer::new(),
             start_position: next_position,
             record_metas: Vec::new(),
             last_touch: Some(last_touch),
@@ -93,7 +156,7 @@ impl MemQueue {
             file_number: Some(file_number),
         };
         self.record_metas.push(record_meta);
-        self.concatenated_records.extend_from_slice(payload);
+        self.concatenated_records.extend(payload);
         Ok(())
     }
 
@@ -108,7 +171,7 @@ impl MemQueue {
         Some(idx as usize)
     }
 
-    pub fn range<R>(&self, range: R) -> impl Iterator<Item = (u64, &[u8])> + '_
+    pub fn range<R>(&self, range: R) -> impl Iterator<Item = (u64, Cow<[u8]>)> + '_
     where R: RangeBounds<u64> + 'static {
         let start_idx: usize = match range.start_bound() {
             Bound::Included(&start_from) => self
@@ -138,10 +201,14 @@ impl MemQueue {
                     let end_offset = next_record_meta.start_offset;
                     (
                         position,
-                        &self.concatenated_records[start_offset..end_offset],
+                        self.concatenated_records
+                            .get_range(start_offset..end_offset),
                     )
                 } else {
-                    (position, &self.concatenated_records[start_offset..])
+                    (
+                        position,
+                        self.concatenated_records.get_range(start_offset..),
+                    )
                 }
             })
     }
@@ -167,7 +234,7 @@ impl MemQueue {
         for record_meta in &mut self.record_metas {
             record_meta.start_offset -= start_offset_to_keep;
         }
-        self.concatenated_records.drain(..start_offset_to_keep);
+        self.concatenated_records.drain_start(start_offset_to_keep);
         self.start_position += first_record_to_keep as u64;
     }
 
