@@ -102,7 +102,7 @@ async fn test_first_chunk_empty() {
 
 #[tokio::test]
 async fn test_behavior_upon_corruption() {
-    let records: Vec<String> = (0..1_000).map(|i| format!("hello{}", i)).collect();
+    let records: Vec<String> = (0..1_000).map(|i| format!("hello{i}")).collect();
     let mut writer = RecordWriter::in_memory();
     for record in &records {
         writer.write_record(record.as_str()).await.unwrap();

@@ -109,7 +109,7 @@ impl MemQueue {
         if idx >= self.record_metas.len() {
             return None;
         }
-        Some(idx as usize)
+        Some(idx)
     }
 
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = (u64, &[u8])> + '_

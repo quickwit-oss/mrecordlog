@@ -33,7 +33,7 @@ fn filename_to_position(file_name: &str) -> Option<u64> {
 }
 
 pub(crate) fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
-    dir.join(&file_number.filename())
+    dir.join(file_number.filename())
 }
 
 async fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<File> {
