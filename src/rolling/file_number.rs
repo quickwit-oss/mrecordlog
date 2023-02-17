@@ -14,7 +14,7 @@ impl FileTracker {
 
     /// Get the first FileNumber still tracked
     pub fn first(&self) -> &FileNumber {
-        self.files.iter().next().unwrap()
+        self.files.first().unwrap()
     }
 
     /// Remove the oldest tracked file if it is no longer used
@@ -27,10 +27,9 @@ impl FileTracker {
             return None;
         }
 
-        let first = self.files.iter().next().unwrap();
+        let first = self.files.first().unwrap();
         if first.can_be_deleted() {
-            let idx = *first.file_number;
-            self.files.take(&idx)
+            self.files.pop_first()
         } else {
             None
         }
