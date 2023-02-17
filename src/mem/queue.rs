@@ -33,7 +33,7 @@ impl RollingBuffer {
         self.buffer.extend(slice.iter().copied());
     }
 
-    fn get_range<T: RangeBounds<usize> + std::fmt::Debug>(&self, bounds: T) -> Cow<[u8]> {
+    fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<[u8]> {
         let start = match bounds.start_bound() {
             Bound::Included(pos) => *pos,
             Bound::Excluded(pos) => pos + 1,
@@ -46,20 +46,25 @@ impl RollingBuffer {
             Bound::Unbounded => self.len(),
         };
 
-        let (first, second) = self.buffer.as_slices();
+        let (left_part_of_queue, right_part_of_queue) = self.buffer.as_slices();
 
-        if end < first.len() {
-            Cow::Borrowed(&first[start..end])
-        } else if start >= first.len() {
-            let start = start - first.len();
-            let end = end - first.len();
+        if end < left_part_of_queue.len() {
+            Cow::Borrowed(&left_part_of_queue[start..end])
+        } else if start >= left_part_of_queue.len() {
+            let start = start - left_part_of_queue.len();
+            let end = end - left_part_of_queue.len();
 
-            Cow::Borrowed(&second[start..end])
+            Cow::Borrowed(&right_part_of_queue[start..end])
         } else {
+            // VecDeque is a rolling buffer. As a result, we do not have
+            // access to a continuous buffer.
+            //
+            // Here the requested slice cross the boundary and we need to allocate and copy the data
+            // in a new buffer.
             let mut res = Vec::with_capacity(end - start);
-            res.extend_from_slice(&first[start..]);
-            let end = end - first.len();
-            res.extend_from_slice(&second[..end]);
+            res.extend_from_slice(&left_part_of_queue[start..]);
+            let end = end - left_part_of_queue.len();
+            res.extend_from_slice(&right_part_of_queue[..end]);
 
             Cow::Owned(res)
         }
