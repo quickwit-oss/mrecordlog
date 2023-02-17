@@ -144,22 +144,23 @@ impl<'a> MultiRecord<'a> {
     pub fn serialize<'b, T: Iterator<Item = &'b [u8]>>(
         record_payloads: T,
         position: u64,
-    ) -> Vec<u8> {
-        Self::serialize_with_pos((position..).zip(record_payloads))
+        output: &mut Vec<u8>,
+    ) {
+        Self::serialize_with_pos((position..).zip(record_payloads), output);
     }
 
-    pub fn serialize_with_pos<'b, T: Iterator<Item = (u64, &'b [u8])>>(
-        record_payloads: T,
-    ) -> Vec<u8> {
-        let mut res = Vec::new();
+    fn serialize_with_pos<'b>(
+        record_payloads: impl Iterator<Item = (u64, &'b [u8])>,
+        output: &mut Vec<u8>,
+    ) {
+        output.clear();
         for (position, record_payload) in record_payloads {
             assert!(record_payload.len() <= u32::MAX as usize);
             // TODO add assert for position monotonicity?
-            res.extend_from_slice(&position.to_le_bytes());
-            res.extend_from_slice(&(record_payload.len() as u32).to_le_bytes());
-            res.extend_from_slice(record_payload);
+            output.extend_from_slice(&position.to_le_bytes());
+            output.extend_from_slice(&(record_payload.len() as u32).to_le_bytes());
+            output.extend_from_slice(record_payload);
         }
-        res
     }
 
     pub fn reset_position(&mut self) {

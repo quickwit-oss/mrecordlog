@@ -15,6 +15,8 @@ pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
     in_mem_queues: mem::MemQueues,
     next_sync: SyncState,
+    // A simple buffer we reuse to avoid allocation.
+    multi_record_spare_buffer: Vec<u8>,
 }
 
 /// Policy for synchonizing and flushing data
@@ -124,6 +126,7 @@ impl MultiRecordLog {
             record_log_writer,
             in_mem_queues,
             next_sync: sync_policy.into(),
+            multi_record_spare_buffer: Vec::new(),
         })
     }
 
@@ -201,13 +204,14 @@ impl MultiRecordLog {
         let position = position_opt.unwrap_or(next_position);
         let file_number = self.record_log_writer.current_file().clone();
 
-        let records = MultiRecord::serialize(payloads, position);
-        if records.is_empty() {
+        let mut multi_record_spare_buffer = std::mem::take(&mut self.multi_record_spare_buffer);
+        MultiRecord::serialize(payloads, position, &mut multi_record_spare_buffer);
+        if multi_record_spare_buffer.is_empty() {
             // empty transaction: don't persist it
             return Ok(None);
         }
 
-        let records = MultiRecord::new_unchecked(&records);
+        let records = MultiRecord::new_unchecked(&multi_record_spare_buffer);
         let record = MultiPlexedRecord::AppendRecords {
             position,
             queue,
@@ -224,6 +228,8 @@ impl MultiRecordLog {
                 .append_record(queue, &file_number, position, payload)?;
             max_position = position;
         }
+
+        self.multi_record_spare_buffer = multi_record_spare_buffer;
         Ok(Some(max_position))
     }
 
