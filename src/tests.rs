@@ -1,6 +1,8 @@
+use std::borrow::Cow;
+
 use crate::MultiRecordLog;
 
-fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Vec<&'a [u8]> {
+fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Vec<Cow<'a, [u8]>> {
     let mut records = Vec::new();
     let mut next_pos = u64::default();
     for (pos, payload) in multi_record_log.range(queue, next_pos..).unwrap() {
@@ -281,7 +283,7 @@ async fn test_truncate_range_correct_pos() {
                 .range("queue", ..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            &[(2, &b"3"[..])]
+            &[(2, Cow::Borrowed(&b"3"[..]))]
         );
 
         assert_eq!(
@@ -289,7 +291,7 @@ async fn test_truncate_range_correct_pos() {
                 .range("queue", 2..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            &[(2, &b"3"[..])]
+            &[(2, Cow::Borrowed(&b"3"[..]))]
         );
 
         use std::ops::Bound;
@@ -298,7 +300,7 @@ async fn test_truncate_range_correct_pos() {
                 .range("queue", (Bound::Excluded(1), Bound::Unbounded))
                 .unwrap()
                 .collect::<Vec<_>>(),
-            &[(2, &b"3"[..])]
+            &[(2, Cow::Borrowed(&b"3"[..]))]
         );
     }
 }

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -307,7 +308,7 @@ async fn test_multi_record() {
                 .range("queue", ..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            [(1, &b"22"[..])],
+            [(1, Cow::Borrowed(&b"22"[..]))],
         );
     }
     {
@@ -327,7 +328,10 @@ async fn test_multi_record() {
                 .range("queue", ..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            [(1, &b"22"[..]), (2, &b"hello"[..]),]
+            [
+                (1, Cow::Borrowed(&b"22"[..])),
+                (2, Cow::Borrowed(&b"hello"[..])),
+            ]
         );
     }
 }
