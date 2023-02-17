@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use crate::error::{AppendError, TouchError};
+use crate::error::AppendError;
 use crate::rolling::FileNumber;
 
 #[derive(Clone)]
@@ -17,34 +17,15 @@ pub struct MemQueue {
     concatenated_records: Vec<u8>,
     start_position: u64,
     record_metas: Vec<RecordMeta>,
-    last_update: Option<FileNumber>,
 }
 
 impl MemQueue {
-    pub fn with_next_position(next_position: u64, last_update: FileNumber) -> Self {
+    pub fn with_next_position(next_position: u64) -> Self {
         MemQueue {
             concatenated_records: Vec::new(),
             start_position: next_position,
             record_metas: Vec::new(),
-            last_update: Some(last_update),
         }
-    }
-
-    pub fn touch(
-        &mut self,
-        file_number: &FileNumber,
-        start_position: u64,
-    ) -> Result<(), TouchError> {
-        if self.is_empty() && self.start_position == 0 {
-            self.start_position = start_position;
-            self.last_update = Some(file_number.clone());
-            return Ok(());
-        }
-        if self.start_position == start_position {
-            self.last_update = Some(file_number.clone());
-            return Ok(());
-        }
-        Err(TouchError)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -87,10 +68,6 @@ impl MemQueue {
         } else {
             file_number.clone()
         };
-
-        if self.last_update.as_ref() != Some(&file_number) {
-            self.last_update = Some(file_number.clone());
-        }
 
         let record_meta = RecordMeta {
             start_offset: self.concatenated_records.len(),

@@ -18,6 +18,8 @@ impl FileTracker {
     }
 
     /// Remove the oldest tracked file if it is no longer used
+    ///
+    /// By design the last file is always considered used.
     pub fn take_first_unused(&mut self) -> Option<FileNumber> {
         // correctness note: this takes a &mut self, so we know there can't be a &FileNumber
         // referencing inside self while this is called.

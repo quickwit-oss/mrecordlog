@@ -179,16 +179,16 @@ async fn test_directory_truncate() {
         assert_eq!(&writer.list_file_numbers(), &[0, 1, 2, 3]);
         assert!(!file_0.can_be_deleted());
         drop(file_1);
-        writer.gc().await.unwrap();
+        writer.directory.gc().await.unwrap();
         assert_eq!(&writer.list_file_numbers(), &[0, 1, 2, 3]);
         drop(file_0);
-        writer.gc().await.unwrap();
+        writer.directory.gc().await.unwrap();
         assert_eq!(&writer.list_file_numbers(), &[2, 3]);
         drop(file_2);
-        writer.gc().await.unwrap();
+        writer.directory.gc().await.unwrap();
         assert_eq!(&writer.list_file_numbers(), &[3]);
         drop(file_3);
-        writer.gc().await.unwrap();
+        writer.directory.gc().await.unwrap();
         assert_eq!(&writer.list_file_numbers(), &[3]);
     }
 }

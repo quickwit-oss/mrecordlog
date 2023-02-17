@@ -2,7 +2,7 @@ use tokio::io;
 
 use crate::block_read_write::VecBlockWriter;
 use crate::frame::{FrameType, FrameWriter};
-use crate::rolling::{FileNumber, RollingWriter};
+use crate::rolling::{Directory, FileNumber, RollingWriter};
 use crate::{BlockWrite, Serializable};
 
 pub struct RecordWriter<W> {
@@ -82,8 +82,8 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
 }
 
 impl RecordWriter<RollingWriter> {
-    pub async fn gc(&mut self) -> io::Result<()> {
-        self.frame_writer.gc().await
+    pub fn directory(&mut self) -> &mut Directory {
+        self.frame_writer.directory()
     }
 
     pub fn current_file(&mut self) -> &FileNumber {

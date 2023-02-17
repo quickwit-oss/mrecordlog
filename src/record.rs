@@ -17,7 +17,7 @@ pub(crate) enum MultiPlexedRecord<'a> {
     /// If the queue does not exists, creates it.
     ///
     /// `position` is the position of the NEXT message to be appended.
-    Touch { queue: &'a str, position: u64 },
+    RecordPosition { queue: &'a str, position: u64 },
     DeleteQueue {
         queue: &'a str,
         position: u64, //< not useful tbh
@@ -83,7 +83,7 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
             MultiPlexedRecord::Truncate { queue, position } => {
                 serialize(RecordType::Truncate, position, queue, &[], buffer);
             }
-            MultiPlexedRecord::Touch { queue, position } => {
+            MultiPlexedRecord::RecordPosition { queue, position } => {
                 serialize(RecordType::Touch, position, queue, &[], buffer);
             }
             MultiPlexedRecord::DeleteQueue { position, queue } => {
@@ -108,7 +108,7 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
                 records: MultiRecord::new(payload).ok()?,
             }),
             RecordType::Truncate => Some(MultiPlexedRecord::Truncate { queue, position }),
-            RecordType::Touch => Some(MultiPlexedRecord::Touch { queue, position }),
+            RecordType::Touch => Some(MultiPlexedRecord::RecordPosition { queue, position }),
             RecordType::DeleteQueue => Some(MultiPlexedRecord::DeleteQueue { queue, position }),
         }
     }
