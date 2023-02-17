@@ -17,16 +17,16 @@ pub struct MemQueue {
     concatenated_records: Vec<u8>,
     start_position: u64,
     record_metas: Vec<RecordMeta>,
-    last_touch: Option<FileNumber>,
+    last_update: Option<FileNumber>,
 }
 
 impl MemQueue {
-    pub fn with_next_position(next_position: u64, last_touch: FileNumber) -> Self {
+    pub fn with_next_position(next_position: u64, last_update: FileNumber) -> Self {
         MemQueue {
             concatenated_records: Vec::new(),
             start_position: next_position,
             record_metas: Vec::new(),
-            last_touch: Some(last_touch),
+            last_update: Some(last_update),
         }
     }
 
@@ -37,11 +37,11 @@ impl MemQueue {
     ) -> Result<(), TouchError> {
         if self.is_empty() && self.start_position == 0 {
             self.start_position = start_position;
-            self.last_touch = Some(file_number.clone());
+            self.last_update = Some(file_number.clone());
             return Ok(());
         }
         if self.start_position == start_position {
-            self.last_touch = Some(file_number.clone());
+            self.last_update = Some(file_number.clone());
             return Ok(());
         }
         Err(TouchError)
@@ -88,6 +88,10 @@ impl MemQueue {
             file_number.clone()
         };
 
+        if self.last_update.as_ref() != Some(&file_number) {
+            self.last_update = Some(file_number.clone());
+        }
+
         let record_meta = RecordMeta {
             start_offset: self.concatenated_records.len(),
             file_number: Some(file_number),
@@ -105,7 +109,7 @@ impl MemQueue {
         if idx >= self.record_metas.len() {
             return None;
         }
-        Some(idx as usize)
+        Some(idx)
     }
 
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = (u64, &[u8])> + '_

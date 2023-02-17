@@ -277,7 +277,7 @@ enum Operation {
 #[tokio::test]
 async fn test_multi_record() {
     let tempdir = tempfile::tempdir().unwrap();
-    eprintln!("dir={:?}", tempdir);
+    eprintln!("dir={tempdir:?}");
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         multi_record_log.create_queue("queue").await.unwrap();

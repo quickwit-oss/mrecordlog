@@ -134,7 +134,7 @@ async fn test_directory_simple() {
             .into_writer()
             .await
             .unwrap();
-        let buf = vec![1u8; FRAME_NUM_BYTES as usize];
+        let buf = vec![1u8; FRAME_NUM_BYTES];
         for _ in 0..(NUM_BLOCKS_PER_FILE + 1) {
             writer.write(&buf).await.unwrap();
         }
@@ -158,7 +158,7 @@ async fn test_directory_truncate() {
         file_0 = reader.current_file().clone();
         assert!(!file_0.can_be_deleted());
         let mut writer: RollingWriter = reader.into_writer().await.unwrap();
-        let buf = vec![1u8; FRAME_NUM_BYTES as usize];
+        let buf = vec![1u8; FRAME_NUM_BYTES];
         assert_eq!(&writer.current_file().unroll(&writer.directory.files), &[0]);
         for _ in 0..NUM_BLOCKS_PER_FILE + 1 {
             writer.write(&buf).await.unwrap();
