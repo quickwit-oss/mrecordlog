@@ -237,7 +237,8 @@ proptest::proptest! {
             Err(_) => return Ok(()),
         };
         let queue = &queue;
-        let multirecord_payload = MultiRecord::serialize(payload.iter().map(|p| p.as_ref()), position);
+        let mut multirecord_payload = Vec::new();
+        MultiRecord::serialize(payload.iter().map(|p| p.as_ref()), position, &mut multirecord_payload);
         let record = match kind%4 {
             0 => MultiPlexedRecord::AppendRecords {
                 queue,
