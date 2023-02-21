@@ -225,14 +225,11 @@ fn test_mem_queues_kee_filenum() {
 
     mem_queues.truncate("droopy", 4);
 
-    assert!(!files[2].can_be_deleted());
-
     let empty_queues = mem_queues.empty_queues().collect::<Vec<_>>();
     assert_eq!(empty_queues.len(), 1);
     assert_eq!(empty_queues[0].0, "droopy");
 
-    mem_queues.touch("droopy", 5, &files[3]).unwrap();
+    mem_queues.ack_position("droopy", 5).unwrap();
 
     assert!(files[2].can_be_deleted());
-    assert!(!files[3].can_be_deleted());
 }

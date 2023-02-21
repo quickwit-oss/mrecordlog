@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::frame::{FrameType, Header, HEADER_LEN};
-use crate::rolling::RollingWriter;
+use crate::rolling::{Directory, RollingWriter};
 use crate::{BlockWrite, BLOCK_NUM_BYTES};
 
 pub struct FrameWriter<W> {
@@ -68,7 +68,7 @@ impl<W: BlockWrite + Unpin> FrameWriter<W> {
 }
 
 impl FrameWriter<RollingWriter> {
-    pub async fn gc(&mut self) -> io::Result<()> {
-        self.wrt.gc().await
+    pub fn directory(&mut self) -> &mut Directory {
+        &mut self.wrt.directory
     }
 }

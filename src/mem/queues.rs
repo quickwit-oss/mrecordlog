@@ -89,28 +89,27 @@ impl MemQueues {
         self.queues.keys().map(|queue| queue.as_str())
     }
 
-    fn get_or_create_queue_mut(&mut self, queue: &str) -> &mut MemQueue {
-        // We do not rely on `entry` in order to avoid
-        // the allocation.
-        if !self.queues.contains_key(queue) {
-            self.queues.insert(queue.to_string(), MemQueue::default());
-        }
-        self.queues.get_mut(queue).unwrap()
-    }
-
-    pub fn touch(
-        &mut self,
-        queue: &str,
-        start_position: u64,
-        file_number: &FileNumber,
-    ) -> Result<(), TouchError> {
-        if self.queues.contains_key(queue) {
-            let queue = self.get_queue_mut(queue).unwrap();
-            queue.touch(file_number, start_position)?;
+    /// Ensure that the queue is empty and start_position = next_position.
+    ///
+    /// Returns an error if the queue already exists and contains elements,
+    /// or is empty but has a next_position that does not match.
+    pub fn ack_position(&mut self, queue: &str, next_position: u64) -> Result<(), TouchError> {
+        if let Some(queue) = self.queues.get(queue) {
+            // It is possible for `ack_position` to be called when a queue already exists.
+            //
+            // For instance, we may have recorded the position of an empty stale queue
+            // twice in the same file. Nothing prevents that from happening today.
+            //
+            // Another possibility is if an IO error occured right after recording position
+            // and before deleting files.
+            if !queue.is_empty() || queue.next_position() != next_position {
+                return Err(TouchError);
+            }
         } else {
+            // The queue does not exist! Let's create it and set the right `next_position`.
             self.queues.insert(
                 queue.to_string(),
-                MemQueue::with_next_position(start_position, file_number.clone()),
+                MemQueue::with_next_position(next_position),
             );
         }
         Ok(())
@@ -129,7 +128,9 @@ impl MemQueues {
     /// If one or more files should be removed,
     /// returns the range of the files that should be removed
     pub fn truncate(&mut self, queue: &str, position: u64) {
-        self.get_or_create_queue_mut(queue).truncate(position);
+        if let Ok(queue) = self.get_queue_mut(queue) {
+            queue.truncate(position);
+        }
     }
 
     pub fn size(&self) -> usize {

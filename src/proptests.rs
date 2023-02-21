@@ -127,9 +127,8 @@ fn operation_strategy() -> impl Strategy<Value = Operation> {
     prop_oneof![
         Just(Operation::Reopen),
         queue_strategy().prop_map(|queue| Operation::RedundantAppend { queue }),
-        (queue_strategy(), (0u64..10u64))
-            .prop_map(|(queue, pos)| Operation::Truncate { queue, pos }),
-        (queue_strategy(), (0u64..10u64))
+        (queue_strategy(), 0u64..10u64).prop_map(|(queue, pos)| Operation::Truncate { queue, pos }),
+        (queue_strategy(), 0u64..10u64)
             .prop_map(|(queue, count)| Operation::MultiAppend { queue, count }),
     ]
 }
@@ -248,7 +247,7 @@ proptest::proptest! {
             1 => MultiPlexedRecord::Truncate {
                 queue,
                 position},
-            2 => MultiPlexedRecord::Touch {queue, position},
+            2 => MultiPlexedRecord::RecordPosition {queue, position},
             3 => MultiPlexedRecord::DeleteQueue {queue, position},
             4.. => unreachable!(),
         };

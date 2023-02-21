@@ -85,8 +85,15 @@ impl Directory {
         self.files.first()
     }
 
+    /// Returns true if some file could be GCed.
+    pub fn has_files_that_can_be_deleted(&self) -> bool {
+        self.files.count() >= 2 && self.files.first().can_be_deleted()
+    }
+
     /// Delete FileNumbers and the associated wal files no longer used.
-    async fn gc(&mut self) -> io::Result<()> {
+    ///
+    /// We never delete the last file.
+    pub(crate) async fn gc(&mut self) -> io::Result<()> {
         while let Some(file) = self.files.take_first_unused() {
             let filepath = filepath(&self.dir, &file);
             tokio::fs::remove_file(&filepath).await?;
@@ -210,10 +217,6 @@ pub struct RollingWriter {
 }
 
 impl RollingWriter {
-    pub async fn gc(&mut self) -> io::Result<()> {
-        self.directory.gc().await
-    }
-
     /// Move forward of `num_bytes` without actually writing anything.
     pub async fn forward(&mut self, num_bytes: usize) -> io::Result<()> {
         self.file.seek(SeekFrom::Current(num_bytes as i64)).await?;

@@ -19,7 +19,7 @@ pub struct MultiRecordLog {
     pub async fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError>;
     pub fn queue_exists(&self, queue: &str) -> bool;
     pub fn list_queues(&self) -> impl Iterator<Item = &str> {
-   pub async fn append_record(
+    pub async fn append_record(
         &mut self,
         queue: &str,
         position_opt: Option<u64>,

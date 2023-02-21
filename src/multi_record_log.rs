@@ -94,7 +94,7 @@ impl MultiRecordLog {
                     } => {
                         if !in_mem_queues.contains_queue(queue) {
                             in_mem_queues
-                                .touch(queue, position, &file_number)
+                                .ack_position(queue, position)
                                 .map_err(|_| ReadRecordError::Corruption)?;
                         }
                         for record in records {
@@ -107,9 +107,9 @@ impl MultiRecordLog {
                     MultiPlexedRecord::Truncate { position, queue } => {
                         in_mem_queues.truncate(queue, position);
                     }
-                    MultiPlexedRecord::Touch { queue, position } => {
+                    MultiPlexedRecord::RecordPosition { queue, position } => {
                         in_mem_queues
-                            .touch(queue, position, &file_number)
+                            .ack_position(queue, position)
                             .map_err(|_| ReadRecordError::Corruption)?;
                     }
                     MultiPlexedRecord::DeleteQueue { queue, position: _ } => {
@@ -141,7 +141,7 @@ impl MultiRecordLog {
     ///
     /// Returns an error if the queue already exists.
     pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
-        let record = MultiPlexedRecord::Touch { queue, position: 0 };
+        let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
         self.sync().await?;
         self.in_mem_queues.create_queue(queue)?;
@@ -234,16 +234,14 @@ impl MultiRecordLog {
         Ok(Some(max_position))
     }
 
-    async fn touch_empty_queues(&mut self) -> Result<(), TruncateError> {
+    async fn record_empty_queues_position(&mut self) -> Result<(), TruncateError> {
         for (queue_id, queue) in self.in_mem_queues.empty_queues() {
             let next_position = queue.next_position();
-            let file_number = self.record_log_writer.current_file().clone();
-            let record = MultiPlexedRecord::Touch {
+            let record = MultiPlexedRecord::RecordPosition {
                 queue: queue_id,
                 position: next_position,
             };
             self.record_log_writer.write_record(record).await?;
-            queue.touch(&file_number, next_position)?;
         }
         Ok(())
     }
@@ -259,8 +257,17 @@ impl MultiRecordLog {
         self.record_log_writer
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;
-        self.touch_empty_queues().await?;
-        self.record_log_writer.gc().await?;
+        if self
+            .record_log_writer
+            .directory()
+            .has_files_that_can_be_deleted()
+        {
+            // We are about to delete files.
+            // Let's make sure we record the offsets of the empty queues
+            // so that we don't lose that information after dropping the files.
+            self.record_empty_queues_position().await?;
+            self.record_log_writer.directory().gc().await?;
+        }
         self.sync_on_policy().await?;
         Ok(())
     }
