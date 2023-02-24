@@ -22,11 +22,14 @@ impl RollingBuffer {
     }
 
     fn clear(&mut self) {
-        self.buffer.clear()
+        self.buffer.clear();
+        self.buffer.shrink_to_fit();
     }
 
     fn drain_start(&mut self, pos: usize) {
+        let before_len = self.len();
         self.buffer.drain(..pos);
+        self.buffer.shrink_to(before_len * 9 / 8);
     }
 
     fn extend(&mut self, slice: &[u8]) {
