@@ -216,6 +216,32 @@ fn test_scenario_big_records() {
     });
 }
 
+fn queue_name_len() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        100 => 1..10usize,
+        1 => 65_534..=65_536usize
+    ]
+}
+
+fn queue_name_strategy() -> impl Strategy<Value = String> {
+    queue_name_len().prop_flat_map(|num_bytes| {
+        proptest::collection::vec(proptest::prelude::any::<char>(), num_bytes).prop_map(
+            move |chars| {
+                let mut s: String = String::new();
+                s.extend(chars.into_iter());
+                let boundaries = (0..num_bytes).rev();
+                for boundary in boundaries {
+                    if s.is_char_boundary(boundary) {
+                        s.truncate(boundary);
+                        break;
+                    }
+                }
+                s
+            },
+        )
+    })
+}
+
 proptest::proptest! {
     #[test]
     fn test_proptest_multirecord((ops, block_size) in (operations_strategy(), 0usize..65535)) {
@@ -229,26 +255,20 @@ proptest::proptest! {
 
     #[test]
     fn test_proptest_multiplexed_record_roundtrip((kind, queue, position, payload) in
-        (proptest::num::u8::ANY, random_bytevec_strategy(65536),
-        proptest::num::u64::ANY, random_multi_record_strategy(64, 65536))) {
-        let queue = match String::from_utf8(queue) {
-            Ok(queue) => queue,
-            Err(_) => return Ok(()),
-        };
-        let queue = &queue;
-        let mut multirecord_payload = Vec::new();
-        MultiRecord::serialize(payload.iter().map(|p| p.as_ref()), position, &mut multirecord_payload);
-        let record = match kind%4 {
+        (0u8..4u8, queue_name_strategy(), proptest::num::u64::ANY, random_multi_record_strategy(64, 65536))) {
+        let mut buffer = Vec::new();
+        MultiRecord::serialize(payload.iter().map(|p| p.as_ref()), position, &mut buffer);
+        let record = match kind {
             0 => MultiPlexedRecord::AppendRecords {
-                queue,
+                queue: &queue,
                 position,
-                records: MultiRecord::new(&multirecord_payload).unwrap(),
+                records: MultiRecord::new(&buffer).unwrap(),
             },
             1 => MultiPlexedRecord::Truncate {
-                queue,
+                queue: &queue,
                 position},
-            2 => MultiPlexedRecord::RecordPosition {queue, position},
-            3 => MultiPlexedRecord::DeleteQueue {queue, position},
+            2 => MultiPlexedRecord::RecordPosition {queue: &queue, position},
+            3 => MultiPlexedRecord::DeleteQueue {queue: &queue, position},
             4.. => unreachable!(),
         };
 
