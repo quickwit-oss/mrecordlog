@@ -304,7 +304,7 @@ async fn test_multi_record() {
         multi_record_log.create_queue("queue").await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"1")
+                .append_record("queue", None, &b"1"[..])
                 .await
                 .unwrap(),
             Some(0)
@@ -314,7 +314,7 @@ async fn test_multi_record() {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"22")
+                .append_record("queue", None, &b"22"[..])
                 .await
                 .unwrap(),
             Some(1)
@@ -335,7 +335,7 @@ async fn test_multi_record() {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"hello")
+                .append_record("queue", None, &b"hello"[..])
                 .await
                 .unwrap(),
             Some(2)
