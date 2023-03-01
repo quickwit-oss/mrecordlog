@@ -162,7 +162,7 @@ impl<'a> MultiRecord<'a> {
             let record_payload = &mut record_payload;
             output.extend_from_slice(&position.to_le_bytes());
             output.extend_from_slice(&(record_payload.remaining() as u32).to_le_bytes());
-            while record_payload.remaining() > 0 {
+            while record_payload.has_remaining() {
                 let chunk = record_payload.chunk();
                 output.extend_from_slice(record_payload.chunk());
                 record_payload.advance(chunk.len());
