@@ -13,6 +13,7 @@ tokio = {version="1", features=["io-util", "macros", "rt-multi-thread", "fs", "i
 async-trait = "0.1"
 serde = {version= "1", features=["derive"]}
 serde_json = {version= "1"}
+bytes = {version = "1"}
 
 [dev-dependencies]
 tempfile = "3"

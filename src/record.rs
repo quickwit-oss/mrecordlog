@@ -1,5 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 
+use bytes::Buf;
+
 use crate::error::MultiRecordCorruption;
 use crate::Serializable;
 
@@ -141,7 +143,7 @@ impl<'a> MultiRecord<'a> {
         }
     }
 
-    pub fn serialize<'b, T: Iterator<Item = &'b [u8]>>(
+    pub fn serialize<T: Iterator<Item = impl Buf>>(
         record_payloads: T,
         position: u64,
         output: &mut Vec<u8>,
@@ -149,17 +151,22 @@ impl<'a> MultiRecord<'a> {
         Self::serialize_with_pos((position..).zip(record_payloads), output);
     }
 
-    fn serialize_with_pos<'b>(
-        record_payloads: impl Iterator<Item = (u64, &'b [u8])>,
+    fn serialize_with_pos(
+        record_payloads: impl Iterator<Item = (u64, impl Buf)>,
         output: &mut Vec<u8>,
     ) {
         output.clear();
-        for (position, record_payload) in record_payloads {
-            assert!(record_payload.len() <= u32::MAX as usize);
+        for (position, mut record_payload) in record_payloads {
+            assert!(record_payload.remaining() <= u32::MAX as usize);
             // TODO add assert for position monotonicity?
+            let record_payload = &mut record_payload;
             output.extend_from_slice(&position.to_le_bytes());
-            output.extend_from_slice(&(record_payload.len() as u32).to_le_bytes());
-            output.extend_from_slice(record_payload);
+            output.extend_from_slice(&(record_payload.remaining() as u32).to_le_bytes());
+            while record_payload.has_remaining() {
+                let chunk = record_payload.chunk();
+                output.extend_from_slice(record_payload.chunk());
+                record_payload.advance(chunk.len());
+            }
         }
     }
 

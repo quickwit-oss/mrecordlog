@@ -4,6 +4,8 @@ use std::ops::RangeBounds;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use bytes::Buf;
+
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, ReadRecordError, TruncateError,
 };
@@ -174,7 +176,7 @@ impl MultiRecordLog {
         &mut self,
         queue: &str,
         position_opt: Option<u64>,
-        payload: &[u8],
+        payload: impl Buf,
     ) -> Result<Option<u64>, AppendError> {
         self.append_records(queue, position_opt, std::iter::once(payload))
             .await
@@ -186,7 +188,7 @@ impl MultiRecordLog {
     /// However this function succeeding does not necessarily means records where stored, be sure
     /// to call [`Self::sync`] to make sure changes are persisted if you don't use
     /// [`SyncPolicy::OnAppend`] (which is the default).
-    pub async fn append_records<'a, T: Iterator<Item = &'a [u8]>>(
+    pub async fn append_records<'a, T: Iterator<Item = impl Buf>>(
         &mut self,
         queue: &str,
         position_opt: Option<u64>,

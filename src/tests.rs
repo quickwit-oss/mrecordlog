@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use bytes::Buf;
+
 use crate::MultiRecordLog;
 
 fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Vec<Cow<'a, [u8]>> {
@@ -49,16 +51,46 @@ async fn test_multi_record_log_simple() {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         multi_record_log.create_queue("queue").await.unwrap();
         multi_record_log
-            .append_record("queue", None, b"hello")
+            .append_record("queue", None, &b"hello"[..])
             .await
             .unwrap();
         multi_record_log
-            .append_record("queue", None, b"happy")
+            .append_record("queue", None, &b"happy"[..])
             .await
             .unwrap();
         assert_eq!(
             &read_all_records(&multi_record_log, "queue"),
             &[b"hello".as_slice(), b"happy".as_slice()]
+        );
+        assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
+    }
+}
+
+#[tokio::test]
+async fn test_multi_record_log_chained() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        multi_record_log.create_queue("queue").await.unwrap();
+        multi_record_log
+            .append_record(
+                "queue",
+                None,
+                b"world".chain(&b" "[..]).chain(&b"order"[..]),
+            )
+            .await
+            .unwrap();
+        multi_record_log
+            .append_record(
+                "queue",
+                None,
+                b"nice"[..].chain(&b" "[..]).chain(&b"day"[..]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            &read_all_records(&multi_record_log, "queue"),
+            &[b"world order".as_slice(), b"nice day".as_slice()]
         );
         assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
     }
@@ -71,11 +103,11 @@ async fn test_multi_record_log_reopen() {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         multi_record_log.create_queue("queue").await.unwrap();
         multi_record_log
-            .append_record("queue", None, b"hello")
+            .append_record("queue", None, &b"hello"[..])
             .await
             .unwrap();
         multi_record_log
-            .append_record("queue", None, b"happy")
+            .append_record("queue", None, &b"happy"[..])
             .await
             .unwrap();
     }
@@ -97,23 +129,23 @@ async fn test_multi_record_log() {
         multi_record_log.create_queue("queue1").await.unwrap();
         multi_record_log.create_queue("queue2").await.unwrap();
         multi_record_log
-            .append_record("queue1", None, b"hello")
+            .append_record("queue1", None, &b"hello"[..])
             .await
             .unwrap();
         multi_record_log
-            .append_record("queue2", None, b"maitre")
+            .append_record("queue2", None, &b"maitre"[..])
             .await
             .unwrap();
         multi_record_log
-            .append_record("queue1", None, b"happy")
+            .append_record("queue1", None, &b"happy"[..])
             .await
             .unwrap();
         multi_record_log
-            .append_record("queue1", None, b"tax")
+            .append_record("queue1", None, &b"tax"[..])
             .await
             .unwrap();
         multi_record_log
-            .append_record("queue2", None, b"corbeau")
+            .append_record("queue2", None, &b"corbeau"[..])
             .await
             .unwrap();
         assert_eq!(
@@ -129,7 +161,7 @@ async fn test_multi_record_log() {
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         multi_record_log
-            .append_record("queue1", None, b"bubu")
+            .append_record("queue1", None, &b"bubu"[..])
             .await
             .unwrap();
         assert_eq!(
@@ -153,7 +185,7 @@ async fn test_multi_record_position_known_after_truncate() {
         multi_record_log.create_queue("queue").await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"1")
+                .append_record("queue", None, &b"1"[..])
                 .await
                 .unwrap(),
             Some(0)
@@ -163,7 +195,7 @@ async fn test_multi_record_position_known_after_truncate() {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"2")
+                .append_record("queue", None, &b"2"[..])
                 .await
                 .unwrap(),
             Some(1)
@@ -179,7 +211,7 @@ async fn test_multi_record_position_known_after_truncate() {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"hello")
+                .append_record("queue", None, &b"hello"[..])
                 .await
                 .unwrap(),
             Some(2)
@@ -258,14 +290,14 @@ async fn test_truncate_range_correct_pos() {
         multi_record_log.create_queue("queue").await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"1")
+                .append_record("queue", None, &b"1"[..])
                 .await
                 .unwrap(),
             Some(0)
         );
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"2")
+                .append_record("queue", None, &b"2"[..])
                 .await
                 .unwrap(),
             Some(1)
@@ -273,7 +305,7 @@ async fn test_truncate_range_correct_pos() {
         multi_record_log.truncate("queue", 1).await.unwrap();
         assert_eq!(
             multi_record_log
-                .append_record("queue", None, b"3")
+                .append_record("queue", None, &b"3"[..])
                 .await
                 .unwrap(),
             Some(2)
@@ -315,7 +347,7 @@ async fn test_multi_record_size() {
         let size_mem_create = multi_record_log.in_memory_size();
         assert!(size_mem_create > 0);
         multi_record_log
-            .append_record("queue", None, b"hello")
+            .append_record("queue", None, &b"hello"[..])
             .await
             .unwrap();
         let size_mem_append = multi_record_log.in_memory_size();
