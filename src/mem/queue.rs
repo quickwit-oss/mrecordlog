@@ -27,13 +27,9 @@ impl RollingBuffer {
     }
 
     fn drain_start(&mut self, pos: usize) {
-        let target_capacity = self.len() * 9 / 8;
+        let before_len = self.len();
         self.buffer.drain(..pos);
-        // TODO this is a workarround for https://github.com/rust-lang/rust/issues/108453
-        if self.buffer.capacity() > target_capacity {
-            self.buffer.make_contiguous();
-            self.buffer.shrink_to(target_capacity);
-        }
+        self.buffer.shrink_to(before_len * 9 / 8);
     }
 
     fn extend(&mut self, slice: &[u8]) {
