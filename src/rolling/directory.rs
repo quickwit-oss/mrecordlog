@@ -22,11 +22,7 @@ fn filename_to_position(file_name: &str) -> Option<u64> {
         return None;
     }
     let seq_number_str = &file_name[4..];
-    if !seq_number_str
-        .as_bytes()
-        .iter()
-        .all(|b| (b'0'..=b'9').contains(b))
-    {
+    if !seq_number_str.as_bytes().iter().all(u8::is_ascii_digit) {
         return None;
     }
     file_name[4..].parse::<u64>().ok()

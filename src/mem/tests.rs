@@ -171,10 +171,7 @@ fn test_mem_queues_non_zero_first_el() {
 fn test_mem_queues_kee_filenum() {
     let mut mem_queues = MemQueues::default();
 
-    let files = (0..4)
-        .into_iter()
-        .map(FileNumber::for_test)
-        .collect::<Vec<_>>();
+    let files = (0..4).map(FileNumber::for_test).collect::<Vec<_>>();
 
     assert!(files.iter().all(FileNumber::can_be_deleted));
 
