@@ -27,13 +27,15 @@ impl RollingBuffer {
     }
 
     fn drain_start(&mut self, pos: usize) {
-        let target_capacity = self.len() * 9 / 8;
+        let before_len = self.len();
         self.buffer.drain(..pos);
-        // TODO this is a workarround for https://github.com/rust-lang/rust/issues/108453
-        if self.buffer.capacity() > target_capacity {
-            self.buffer.make_contiguous();
-            self.buffer.shrink_to(target_capacity);
-        }
+        // In order to avoid leaking memory we shrink the buffer.
+        // The last maximum length (= the length before drain)
+        // is a good estimate of what we will need in the future.
+        //
+        // We add 1/8 to that in order to make sure that we don't end up 
+        // shrinking  / allocating for small variations.
+        self.buffer.shrink_to(before_len * 9 / 8);
     }
 
     fn extend(&mut self, slice: &[u8]) {
