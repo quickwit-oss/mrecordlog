@@ -33,7 +33,7 @@ impl RollingBuffer {
         // The last maximum length (= the length before drain)
         // is a good estimate of what we will need in the future.
         //
-        // We add 1/8 to that in order to make sure that we don't end up 
+        // We add 1/8 to that in order to make sure that we don't end up
         // shrinking  / allocating for small variations.
         self.buffer.shrink_to(before_len * 9 / 8);
     }
