@@ -69,7 +69,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub fn append_record(
+    pub async fn append_record(
         &mut self,
         queue: &str,
         file_number: &FileNumber,
@@ -77,7 +77,8 @@ impl MemQueues {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)?;
+            .append_record(file_number, target_position, payload)
+            .await?;
         Ok(())
     }
 

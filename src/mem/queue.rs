@@ -35,11 +35,29 @@ impl RollingBuffer {
         //
         // We add 1/8 to that in order to make sure that we don't end up
         // shrinking  / allocating for small variations.
+        // TODO maybe this should be run in a blocking task aswell?
         self.buffer.shrink_to(before_len * 9 / 8);
     }
 
-    fn extend(&mut self, slice: &[u8]) {
+    async fn extend(&mut self, slice: &[u8]) {
+        self.reserve(slice.len()).await;
         self.buffer.extend(slice.iter().copied());
+    }
+
+    /// This function is used to make sure we don't block an async executor on a long
+    /// resize
+    async fn reserve(&mut self, capacity: usize) {
+        if self.buffer.capacity() - self.buffer.len() < capacity {
+            // we need to realocate, which can be slow. Do that on a
+            // blocking task
+            let mut buffer = std::mem::take(&mut self.buffer);
+            self.buffer = tokio::task::spawn_blocking(move || {
+                buffer.reserve(capacity);
+                buffer
+            })
+            .await
+            .unwrap();
+        }
     }
 
     fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<[u8]> {
@@ -118,7 +136,7 @@ impl MemQueue {
     /// Returns an error if the record was not added.
     ///
     /// AppendError if the record is strangely in the past or is too much in the future.
-    pub fn append_record(
+    pub async fn append_record(
         &mut self,
         file_number: &FileNumber,
         target_position: u64,
@@ -151,7 +169,7 @@ impl MemQueue {
             file_number: Some(file_number),
         };
         self.record_metas.push(record_meta);
-        self.concatenated_records.extend(payload);
+        self.concatenated_records.extend(payload).await;
         Ok(())
     }
 

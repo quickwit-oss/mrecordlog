@@ -103,6 +103,7 @@ impl MultiRecordLog {
                             let (position, payload) = record?;
                             in_mem_queues
                                 .append_record(queue, &file_number, position, payload)
+                                .await
                                 .map_err(|_| ReadRecordError::Corruption)?;
                         }
                     }
@@ -228,7 +229,8 @@ impl MultiRecordLog {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
             self.in_mem_queues
-                .append_record(queue, &file_number, position, payload)?;
+                .append_record(queue, &file_number, position, payload)
+                .await?;
             max_position = position;
         }
 
