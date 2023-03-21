@@ -15,7 +15,7 @@ fn test_mem_queues_already_exists() {
 }
 
 #[test]
-fn test_mem_queues() {
+fn test_mem_queuess() {
     let mut mem_queues = MemQueues::default();
     mem_queues.create_queue("droopy").unwrap();
     mem_queues.create_queue("fable").unwrap();
