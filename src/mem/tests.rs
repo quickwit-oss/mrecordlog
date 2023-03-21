@@ -98,7 +98,7 @@ async fn test_mem_queues_truncate() {
             .await
             .unwrap();
     }
-    mem_queues.truncate("droopy", 3);
+    mem_queues.truncate("droopy", 3).await;
     let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
@@ -230,7 +230,7 @@ async fn test_mem_queues_kee_filenum() {
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
 
-    mem_queues.truncate("droopy", 1);
+    mem_queues.truncate("droopy", 1).await;
 
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
@@ -244,13 +244,13 @@ async fn test_mem_queues_kee_filenum() {
     assert!(!files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues.truncate("droopy", 3);
+    mem_queues.truncate("droopy", 3).await;
 
     assert!(files[0].can_be_deleted());
     assert!(files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues.truncate("droopy", 4);
+    mem_queues.truncate("droopy", 4).await;
 
     let empty_queues = mem_queues.empty_queues().collect::<Vec<_>>();
     assert_eq!(empty_queues.len(), 1);

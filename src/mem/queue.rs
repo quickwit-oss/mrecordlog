@@ -26,8 +26,8 @@ impl RollingBuffer {
         self.buffer.shrink_to_fit();
     }
 
-    fn drain_start(&mut self, pos: usize) {
-        let before_len = self.len();
+    async fn drain_start(&mut self, pos: usize) {
+        let target_capacity = self.len() * 9 / 8;
         self.buffer.drain(..pos);
         // In order to avoid leaking memory we shrink the buffer.
         // The last maximum length (= the length before drain)
@@ -35,8 +35,16 @@ impl RollingBuffer {
         //
         // We add 1/8 to that in order to make sure that we don't end up
         // shrinking  / allocating for small variations.
-        // TODO maybe this should be run in a blocking task aswell?
-        self.buffer.shrink_to(before_len * 9 / 8);
+
+        if self.buffer.capacity() > target_capacity {
+            let mut buffer = std::mem::take(&mut self.buffer);
+            self.buffer = tokio::task::spawn_blocking(move || {
+                buffer.shrink_to(target_capacity);
+                buffer
+            })
+            .await
+            .unwrap();
+        }
     }
 
     async fn extend(&mut self, slice: &[u8]) {
@@ -228,7 +236,7 @@ impl MemQueue {
 
     /// Removes all records coming before position,
     /// and including the record at "position".
-    pub fn truncate(&mut self, truncate_up_to_pos: u64) {
+    pub async fn truncate(&mut self, truncate_up_to_pos: u64) {
         if self.start_position > truncate_up_to_pos {
             return;
         }
@@ -247,7 +255,9 @@ impl MemQueue {
         for record_meta in &mut self.record_metas {
             record_meta.start_offset -= start_offset_to_keep;
         }
-        self.concatenated_records.drain_start(start_offset_to_keep);
+        self.concatenated_records
+            .drain_start(start_offset_to_keep)
+            .await;
         self.start_position += first_record_to_keep as u64;
     }
 
