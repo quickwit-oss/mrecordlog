@@ -69,7 +69,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub fn append_record(
+    pub async fn append_record(
         &mut self,
         queue: &str,
         file_number: &FileNumber,
@@ -77,7 +77,8 @@ impl MemQueues {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)?;
+            .append_record(file_number, target_position, payload)
+            .await?;
         Ok(())
     }
 
@@ -127,9 +128,9 @@ impl MemQueues {
     ///
     /// If one or more files should be removed,
     /// returns the range of the files that should be removed
-    pub fn truncate(&mut self, queue: &str, position: u64) {
+    pub async fn truncate(&mut self, queue: &str, position: u64) {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            queue.truncate(position);
+            queue.truncate(position).await;
         }
     }
 
