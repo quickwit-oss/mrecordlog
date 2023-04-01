@@ -103,12 +103,11 @@ impl MultiRecordLog {
                             let (position, payload) = record?;
                             in_mem_queues
                                 .append_record(queue, &file_number, position, payload)
-                                .await
                                 .map_err(|_| ReadRecordError::Corruption)?;
                         }
                     }
                     MultiPlexedRecord::Truncate { position, queue } => {
-                        in_mem_queues.truncate(queue, position).await;
+                        in_mem_queues.truncate(queue, position);
                     }
                     MultiPlexedRecord::RecordPosition { queue, position } => {
                         in_mem_queues
@@ -229,8 +228,7 @@ impl MultiRecordLog {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
             self.in_mem_queues
-                .append_record(queue, &file_number, position, payload)
-                .await?;
+                .append_record(queue, &file_number, position, payload)?;
             max_position = position;
         }
 
@@ -257,7 +255,7 @@ impl MultiRecordLog {
         if position >= self.in_mem_queues.next_position(queue)? {
             return Err(TruncateError::Future);
         }
-        self.in_mem_queues.truncate(queue, position).await;
+        self.in_mem_queues.truncate(queue, position);
         self.record_log_writer
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;

@@ -22,33 +22,27 @@ async fn test_mem_queues() {
     {
         assert!(mem_queues
             .append_record("droopy", &FileNumber::for_test(1), 0, b"hello")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("droopy", &FileNumber::for_test(1), 1, b"happy")
-            .await
             .is_ok());
     }
 
     {
         assert!(mem_queues
             .append_record("fable", &FileNumber::for_test(1), 0, b"maitre")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("fable", &FileNumber::for_test(1), 1, b"corbeau")
-            .await
             .is_ok());
     }
 
     {
         assert!(mem_queues
             .append_record("droopy", &FileNumber::for_test(1), 2, b"tax")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("droopy", &FileNumber::for_test(1), 3, b"payer")
-            .await
             .is_ok());
         assert_eq!(
             mem_queues.range("droopy", 0..).unwrap().next(),
@@ -75,30 +69,24 @@ async fn test_mem_queues_truncate() {
     {
         assert!(mem_queues
             .append_record("droopy", &1.into(), 0, b"hello")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("droopy", &1.into(), 1, b"happy")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("droopy", &1.into(), 2, b"tax")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("droopy", &1.into(), 3, b"payer")
-            .await
             .is_ok());
         assert!(mem_queues
             .append_record("droopy", &1.into(), 4, b"!")
-            .await
             .is_ok());
         mem_queues
             .append_record("droopy", &1.into(), 5, b"payer")
-            .await
             .unwrap();
     }
-    mem_queues.truncate("droopy", 3).await;
+    mem_queues.truncate("droopy", 3);
     let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
@@ -115,21 +103,15 @@ async fn test_mem_queues_skip_yield_error() {
     mem_queues.create_queue("droopy").unwrap();
     assert!(mem_queues
         .append_record("droopy", &1.into(), 0, b"hello")
-        .await
         .is_ok());
-    let append_res = mem_queues
-        .append_record("droopy", &1.into(), 2, b"happy")
-        .await;
+    let append_res = mem_queues.append_record("droopy", &1.into(), 2, b"happy");
     assert!(matches!(append_res, Err(AppendError::Future)));
     assert!(matches!(
-        mem_queues
-            .append_record("droopy", &1.into(), 3, b"happy")
-            .await,
+        mem_queues.append_record("droopy", &1.into(), 3, b"happy"),
         Err(AppendError::Future)
     ));
     assert!(mem_queues
         .append_record("droopy", &1.into(), 1, b"happy")
-        .await
         .is_ok());
     let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
@@ -147,16 +129,12 @@ async fn test_mem_queues_append_in_the_past_yield_error() {
     mem_queues.create_queue("droopy").unwrap();
     assert!(mem_queues
         .append_record("droopy", &1.into(), 0, b"hello")
-        .await
         .is_ok());
     assert!(mem_queues
         .append_record("droopy", &1.into(), 1, b"happy")
-        .await
         .is_ok());
     assert!(matches!(
-        mem_queues
-            .append_record("droopy", &1.into(), 0, b"happy")
-            .await,
+        mem_queues.append_record("droopy", &1.into(), 0, b"happy"),
         Err(AppendError::Past)
     ));
 }
@@ -167,12 +145,10 @@ async fn test_mem_queues_append_idempotence() {
     mem_queues.create_queue("droopy").unwrap();
     assert!(mem_queues
         .append_record("droopy", &1.into(), 0, b"hello")
-        .await
         .is_ok());
     assert!(matches!(
         mem_queues
             .append_record("droopy", &1.into(), 0, b"different")
-            .await
             .unwrap_err(),
         AppendError::Past
     ));
@@ -186,7 +162,6 @@ async fn test_mem_queues_non_zero_first_el() {
     mem_queues.create_queue("droopy").unwrap();
     assert!(mem_queues
         .append_record("droopy", &1.into(), 5, b"hello")
-        .await
         .is_ok());
     let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(droopy, &[(5, Cow::Borrowed(&b"hello"[..]))]);
@@ -203,54 +178,49 @@ async fn test_mem_queues_kee_filenum() {
     mem_queues.create_queue("droopy").unwrap();
     mem_queues
         .append_record("droopy", &files[0], 0, b"hello")
-        .await
         .unwrap();
 
     assert!(!files[0].can_be_deleted());
 
     mem_queues
         .append_record("droopy", &files[0], 1, b"hello")
-        .await
         .unwrap();
 
     assert!(!files[0].can_be_deleted());
 
     mem_queues
         .append_record("droopy", &files[0], 2, b"hello")
-        .await
         .unwrap();
 
     assert!(!files[0].can_be_deleted());
 
     mem_queues
         .append_record("droopy", &files[1], 3, b"hello")
-        .await
         .unwrap();
 
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
 
-    mem_queues.truncate("droopy", 1).await;
+    mem_queues.truncate("droopy", 1);
 
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
 
     mem_queues
         .append_record("droopy", &files[2], 4, b"hello")
-        .await
         .unwrap();
 
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues.truncate("droopy", 3).await;
+    mem_queues.truncate("droopy", 3);
 
     assert!(files[0].can_be_deleted());
     assert!(files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues.truncate("droopy", 4).await;
+    mem_queues.truncate("droopy", 4);
 
     let empty_queues = mem_queues.empty_queues().collect::<Vec<_>>();
     assert_eq!(empty_queues.len(), 1);

@@ -18,7 +18,7 @@ impl MemQueues {
         if self.queues.contains_key(queue) {
             return Err(AlreadyExists);
         }
-        self.queues.insert(queue.to_string(), MemQueue::default());
+        self.queues.insert(queue.to_string(), MemQueue::new());
         Ok(())
     }
 
@@ -69,7 +69,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub async fn append_record(
+    pub fn append_record(
         &mut self,
         queue: &str,
         file_number: &FileNumber,
@@ -77,8 +77,7 @@ impl MemQueues {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)
-            .await?;
+            .append_record(file_number, target_position, payload)?;
         Ok(())
     }
 
@@ -128,9 +127,9 @@ impl MemQueues {
     ///
     /// If one or more files should be removed,
     /// returns the range of the files that should be removed
-    pub async fn truncate(&mut self, queue: &str, position: u64) {
+    pub fn truncate(&mut self, queue: &str, position: u64) {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            queue.truncate(position).await;
+            queue.truncate(position);
         }
     }
 
