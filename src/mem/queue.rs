@@ -82,6 +82,8 @@ impl RollingBuffer {
 
 fn new_slice() -> Box<[u8; BUFFER_SLICE_LEN]> {
     // on opt-level>=1 this does not allocate on the stack
+    // TODO this could use MaybeUninit to skip a memset. This would require
+    // checking more thoroughly any read we get for out of bound access.
     Box::new([0; BUFFER_SLICE_LEN])
 }
 
