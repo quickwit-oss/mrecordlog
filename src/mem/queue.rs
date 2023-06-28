@@ -245,6 +245,8 @@ impl MemQueue {
                 first_record_to_keep
             } else {
                 // clear the queue entirely
+                // TODO it might make more sense to jump to truncate_up_to_pos instead of just
+                // going on step forward.
                 self.start_position = self.next_position();
                 self.concatenated_records.clear();
                 self.record_metas.clear();

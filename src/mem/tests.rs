@@ -256,7 +256,7 @@ async fn test_mem_queues_kee_filenum() {
     assert_eq!(empty_queues.len(), 1);
     assert_eq!(empty_queues[0].0, "droopy");
 
-    mem_queues.ack_position("droopy", 5).unwrap();
+    mem_queues.ack_position("droopy", 5);
 
     assert!(files[2].can_be_deleted());
 }

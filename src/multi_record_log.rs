@@ -5,6 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bytes::Buf;
+use tracing::warn;
 
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, ReadRecordError, TruncateError,
@@ -87,7 +88,11 @@ impl MultiRecordLog {
         let mut in_mem_queues = crate::mem::MemQueues::default();
         loop {
             let file_number = record_reader.read().current_file().clone();
-            if let Some(record) = record_reader.read_record().await? {
+            let Ok(record) = record_reader.read_record().await else {
+                warn!("Detected corrupted record: some data may have been lost");
+                continue;
+            };
+            if let Some(record) = record {
                 match record {
                     MultiPlexedRecord::AppendRecords {
                         queue,
@@ -95,12 +100,16 @@ impl MultiRecordLog {
                         position,
                     } => {
                         if !in_mem_queues.contains_queue(queue) {
-                            in_mem_queues
-                                .ack_position(queue, position)
-                                .map_err(|_| ReadRecordError::Corruption)?;
+                            in_mem_queues.ack_position(queue, position);
                         }
                         for record in records {
+                            // if this fails, it means some corruption wasn't detected at a lower
+                            // level, or we wrote invalid data.
                             let (position, payload) = record?;
+                            // this can fail if queue doesn't exist (it was created just above, so
+                            // it does), or if the positions are not correct. For the 2nd case, we
+                            // need https://github.com/quickwit-oss/mrecordlog/issues/4 to fix the
+                            // issue.
                             in_mem_queues
                                 .append_record(queue, &file_number, position, payload)
                                 .await
@@ -111,14 +120,12 @@ impl MultiRecordLog {
                         in_mem_queues.truncate(queue, position).await;
                     }
                     MultiPlexedRecord::RecordPosition { queue, position } => {
-                        in_mem_queues
-                            .ack_position(queue, position)
-                            .map_err(|_| ReadRecordError::Corruption)?;
+                        in_mem_queues.ack_position(queue, position);
                     }
                     MultiPlexedRecord::DeleteQueue { queue, position: _ } => {
-                        in_mem_queues
-                            .delete_queue(queue)
-                            .map_err(|_| ReadRecordError::Corruption)?;
+                        // can fail if we don't know about the queue getting deleted. It's fine to
+                        // just ignore the error, the queue no longer exists either way.
+                        let _ = in_mem_queues.delete_queue(queue);
                     }
                 }
             } else {
