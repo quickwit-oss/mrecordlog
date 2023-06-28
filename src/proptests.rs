@@ -14,7 +14,7 @@ use crate::{MultiRecordLog, Serializable};
 struct PropTestEnv {
     tempdir: TempDir,
     record_log: MultiRecordLog,
-    state: HashMap<&'static str, Range<u64>>,
+    state: HashMap<&'static str, (Range<u64>, u64)>,
     block_to_write: Vec<u8>,
 }
 
@@ -25,8 +25,8 @@ impl PropTestEnv {
         record_log.create_queue("q1").await.unwrap();
         record_log.create_queue("q2").await.unwrap();
         let mut state = HashMap::default();
-        state.insert("q1", 0..0);
-        state.insert("q2", 0..0);
+        state.insert("q1", (0..0, 0));
+        state.insert("q2", (0..0, 0));
         PropTestEnv {
             tempdir,
             record_log,
@@ -40,11 +40,18 @@ impl PropTestEnv {
             Operation::Reopen => {
                 self.reload().await;
             }
-            Operation::MultiAppend { queue, count } => {
-                self.multi_append(queue, count).await;
+            Operation::MultiAppend {
+                queue,
+                count,
+                skip_one_pos,
+            } => {
+                self.multi_append(queue, count, skip_one_pos).await;
             }
-            Operation::RedundantAppend { queue } => {
-                self.double_append(queue).await;
+            Operation::RedundantAppend {
+                queue,
+                skip_one_pos,
+            } => {
+                self.double_append(queue, skip_one_pos).await;
             }
             Operation::Truncate { queue, pos } => {
                 self.truncate(queue, pos).await;
@@ -54,43 +61,46 @@ impl PropTestEnv {
 
     pub async fn reload(&mut self) {
         self.record_log = MultiRecordLog::open(self.tempdir.path()).await.unwrap();
-        for (queue, range) in &self.state {
+        for (queue, (_range, count)) in &self.state {
             assert_eq!(
                 self.record_log.range(queue, ..).unwrap().count() as u64,
-                range.end - range.start,
+                *count,
             );
         }
     }
 
-    pub async fn double_append(&mut self, queue: &str) {
-        let range = self.state.get_mut(queue).unwrap();
+    pub async fn double_append(&mut self, queue: &str, skip_one_pos: bool) {
+        let state = self.state.get_mut(queue).unwrap();
 
+        let new_pos = state.0.end + skip_one_pos as u64;
         let res = self
             .record_log
-            .append_records(queue, Some(range.end), std::iter::once(&b"BB"[..]))
+            .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
             .await
             .unwrap()
             .unwrap();
 
         assert!(self
             .record_log
-            .append_records(queue, Some(range.end), std::iter::once(&b"BB"[..]))
+            .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
             .await
             .unwrap()
             .is_none());
 
-        assert_eq!(range.end, res);
-        range.end += 1;
+        assert_eq!(new_pos, res);
+        state.0.end = new_pos + 1;
+        state.1 += 1;
     }
 
-    pub async fn multi_append(&mut self, queue: &str, count: u64) {
-        let range = self.state.get_mut(queue).unwrap();
+    pub async fn multi_append(&mut self, queue: &str, count: u64, skip_one_pos: bool) {
+        let state = self.state.get_mut(queue).unwrap();
 
+        let new_pos = state.0.end + skip_one_pos as u64;
         let res = self
             .record_log
             .append_records(
                 queue,
-                Some(range.end),
+                Some(new_pos),
                 std::iter::repeat(&self.block_to_write[..]).take(count as usize),
             )
             .await
@@ -98,20 +108,22 @@ impl PropTestEnv {
 
         if count != 0 {
             let res = res.unwrap();
-            assert_eq!(range.end + count - 1, res);
-            range.end += count;
+            assert_eq!(new_pos + count - 1, res);
+            state.0.end = new_pos + count;
+            state.1 += count;
         }
     }
 
     pub async fn truncate(&mut self, queue: &str, pos: u64) {
-        let range = self.state.get_mut(queue).unwrap();
-        if range.contains(&pos) {
-            // invalid operation
-            range.start = pos + 1;
+        let state = self.state.get_mut(queue).unwrap();
+        if state.0.contains(&pos) {
+            state.0.start = pos + 1;
+            state.1 -= self.record_log.truncate(queue, pos).await.unwrap() as u64;
+        } else if pos >= state.0.end {
+            // advance the queue to the position.
+            state.0 = (pos + 1)..(pos + 1);
+            state.1 = 0;
             self.record_log.truncate(queue, pos).await.unwrap();
-        } else if pos >= range.end {
-            // invalid usage
-            self.record_log.truncate(queue, pos).await.unwrap_err();
         } else {
             // should be a no-op
             self.record_log.truncate(queue, pos).await.unwrap();
@@ -126,10 +138,20 @@ fn queue_strategy() -> impl Strategy<Value = &'static str> {
 fn operation_strategy() -> impl Strategy<Value = Operation> {
     prop_oneof![
         Just(Operation::Reopen),
-        queue_strategy().prop_map(|queue| Operation::RedundantAppend { queue }),
+        (queue_strategy(), proptest::bool::ANY).prop_map(|(queue, skip_one_pos)| {
+            Operation::RedundantAppend {
+                queue,
+                skip_one_pos,
+            }
+        }),
         (queue_strategy(), 0u64..10u64).prop_map(|(queue, pos)| Operation::Truncate { queue, pos }),
-        (queue_strategy(), 0u64..10u64)
-            .prop_map(|(queue, count)| Operation::MultiAppend { queue, count }),
+        (queue_strategy(), 0u64..10u64, proptest::bool::ANY).prop_map(
+            |(queue, count, skip_one_pos)| Operation::MultiAppend {
+                queue,
+                count,
+                skip_one_pos
+            }
+        ),
     ]
 }
 
@@ -155,25 +177,33 @@ fn test_scenario_end_on_full_file() {
         MultiAppend {
             queue: "q1",
             count: 1,
+            skip_one_pos: false,
         },
         MultiAppend {
             queue: "q1",
             count: 1,
+            skip_one_pos: false,
         },
         MultiAppend {
             queue: "q2",
             count: 1,
+            skip_one_pos: false,
         },
         MultiAppend {
             queue: "q2",
             count: 1,
+            skip_one_pos: false,
         },
         MultiAppend {
             queue: "q2",
             count: 1,
+            skip_one_pos: false,
         },
         Reopen,
-        RedundantAppend { queue: "q2" },
+        RedundantAppend {
+            queue: "q2",
+            skip_one_pos: false,
+        },
         Reopen,
     ];
     Runtime::new().unwrap().block_on(async {
@@ -194,18 +224,24 @@ fn test_scenario_big_records() {
         MultiAppend {
             queue: "q1",
             count: 2,
+            skip_one_pos: false,
         },
         MultiAppend {
             queue: "q2",
             count: 4,
+            skip_one_pos: false,
         },
         Reopen,
         MultiAppend {
             queue: "q2",
             count: 1,
+            skip_one_pos: false,
         },
         Reopen,
-        RedundantAppend { queue: "q2" },
+        RedundantAppend {
+            queue: "q2",
+            skip_one_pos: false,
+        },
         Reopen,
     ];
     Runtime::new().unwrap().block_on(async {
@@ -290,9 +326,19 @@ proptest::proptest! {
 #[derive(Debug, Clone)]
 enum Operation {
     Reopen,
-    MultiAppend { queue: &'static str, count: u64 },
-    RedundantAppend { queue: &'static str },
-    Truncate { queue: &'static str, pos: u64 },
+    MultiAppend {
+        queue: &'static str,
+        count: u64,
+        skip_one_pos: bool,
+    },
+    RedundantAppend {
+        queue: &'static str,
+        skip_one_pos: bool,
+    },
+    Truncate {
+        queue: &'static str,
+        pos: u64,
+    },
 }
 
 #[tokio::test]

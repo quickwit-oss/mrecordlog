@@ -49,8 +49,6 @@ pub enum TruncateError {
     MissingQueue(String),
     #[error("Io error: {0}")]
     IoError(#[from] io::Error),
-    #[error("Future position forbidden")]
-    Future,
 }
 
 impl From<MissingQueue> for TruncateError {
@@ -67,8 +65,6 @@ pub enum AppendError {
     MissingQueue(String),
     #[error("Past")]
     Past,
-    #[error("Future")]
-    Future,
 }
 
 impl From<MissingQueue> for AppendError {

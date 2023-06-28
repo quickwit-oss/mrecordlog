@@ -83,6 +83,7 @@ impl MultiRecordLog {
         directory_path: &Path,
         sync_policy: SyncPolicy,
     ) -> Result<Self, ReadRecordError> {
+        // io errors are non-recoverable
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
@@ -107,9 +108,10 @@ impl MultiRecordLog {
                             // level, or we wrote invalid data.
                             let (position, payload) = record?;
                             // this can fail if queue doesn't exist (it was created just above, so
-                            // it does), or if the positions are not correct. For the 2nd case, we
-                            // need https://github.com/quickwit-oss/mrecordlog/issues/4 to fix the
-                            // issue.
+                            // it does), or if the position is in the past. This can happen if the
+                            // queue is deleted and recreated in a block which get skipped for
+                            // corruption. In that case, maybe we should ack_position() and try
+                            // to insert again?
                             in_mem_queues
                                 .append_record(queue, &file_number, position, payload)
                                 .await
@@ -132,6 +134,7 @@ impl MultiRecordLog {
                 break;
             }
         }
+        // io errors are non-recoverable
         let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer().await?;
         Ok(MultiRecordLog {
             record_log_writer,
@@ -204,9 +207,8 @@ impl MultiRecordLog {
     ) -> Result<Option<u64>, AppendError> {
         let next_position = self.in_mem_queues.next_position(queue)?;
         if let Some(position) = position_opt {
-            if position > next_position {
-                return Err(AppendError::Future);
-            } else if position + 1 == next_position {
+            // we accept position in the future, and move forward as required.
+            if position + 1 == next_position {
                 return Ok(None);
             } else if position < next_position {
                 return Err(AppendError::Past);
@@ -260,11 +262,13 @@ impl MultiRecordLog {
     /// Truncates the queue log.
     ///
     /// This method will always truncate the record log, and release the associated memory.
-    pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<(), TruncateError> {
-        if position >= self.in_mem_queues.next_position(queue)? {
-            return Err(TruncateError::Future);
-        }
-        self.in_mem_queues.truncate(queue, position).await;
+    /// It returns the number of record deleted.
+    pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
+        let removed_count = self
+            .in_mem_queues
+            .truncate(queue, position)
+            .await
+            .unwrap_or(0);
         self.record_log_writer
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;
@@ -280,7 +284,7 @@ impl MultiRecordLog {
             self.record_log_writer.directory().gc().await?;
         }
         self.sync_on_policy().await?;
-        Ok(())
+        Ok(removed_count)
     }
 
     pub fn range<R>(

@@ -133,9 +133,11 @@ impl MemQueues {
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub async fn truncate(&mut self, queue: &str, position: u64) {
+    pub async fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            queue.truncate(position).await;
+            Some(queue.truncate(position).await)
+        } else {
+            None
         }
     }
 

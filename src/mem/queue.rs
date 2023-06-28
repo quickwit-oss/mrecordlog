@@ -112,6 +112,7 @@ struct RecordMeta {
     // in a vec of RecordMeta, this field should be set only on the last record
     // which relate to that File.
     file_number: Option<FileNumber>,
+    position: u64,
 }
 
 #[derive(Default)]
@@ -137,7 +138,10 @@ impl MemQueue {
 
     /// Returns what should be the next position.
     pub fn next_position(&self) -> u64 {
-        self.start_position + self.record_metas.len() as u64
+        self.record_metas
+            .last()
+            .map(|record| record.position + 1)
+            .unwrap_or(self.start_position)
     }
 
     /// Appends a new record at a given position.
@@ -152,9 +156,7 @@ impl MemQueue {
     ) -> Result<(), AppendError> {
         let next_position = self.next_position();
         if next_position != 0 && next_position != target_position {
-            if target_position > next_position {
-                return Err(AppendError::Future);
-            } else {
+            if target_position < next_position {
                 return Err(AppendError::Past);
             }
         }
@@ -175,49 +177,44 @@ impl MemQueue {
         let record_meta = RecordMeta {
             start_offset: self.concatenated_records.len(),
             file_number: Some(file_number),
+            position: target_position,
         };
         self.record_metas.push(record_meta);
         self.concatenated_records.extend(payload).await;
         Ok(())
     }
 
-    fn position_to_idx(&self, position: u64) -> Option<usize> {
-        if self.start_position > position {
-            return Some(0);
-        }
-        let idx = (position - self.start_position) as usize;
-        if idx >= self.record_metas.len() {
-            return None;
-        }
-        Some(idx)
+    /// Get the position of the record.
+    ///
+    /// Returns Ok(_) if the record was found, or Err(idx) with idx being the index just after
+    /// where that element would have been if it existed.
+    fn position_to_idx(&self, position: u64) -> Result<usize, usize> {
+        self.record_metas
+            .binary_search_by_key(&position, |record| record.position)
     }
 
     pub fn range<R>(&self, range: R) -> impl Iterator<Item = (u64, Cow<[u8]>)> + '_
     where R: RangeBounds<u64> + 'static {
         let start_idx: usize = match range.start_bound() {
-            Bound::Included(&start_from) => self
-                .position_to_idx(start_from)
-                .unwrap_or(self.record_metas.len()),
+            Bound::Included(&start_from) => {
+                // if pos is included, we can use position_to_idx result directly
+                self.position_to_idx(start_from)
+                    .map_or_else(std::convert::identity, std::convert::identity)
+            }
             Bound::Excluded(&start_from) => {
-                // if the excluded start bound is before our start, we range over everything
-                if self.start_position > start_from {
-                    0
-                } else {
-                    self.position_to_idx(start_from)
-                        .unwrap_or(self.record_metas.len())
-                        + 1
-                }
+                // if pos is excluded, an Err can be used directly, but an Ok must be incremented
+                // by one to skip the element matching exactly.
+                self.position_to_idx(start_from)
+                    .map_or_else(std::convert::identity, |idx| idx + 1)
             }
             Bound::Unbounded => 0,
         };
         (start_idx..self.record_metas.len())
-            .take_while(move |&idx| {
-                let position = self.start_position + idx as u64;
-                range.contains(&position)
-            })
+            .take_while(move |idx| range.contains(&self.record_metas[*idx].position))
             .map(move |idx| {
-                let position = self.start_position + idx as u64;
-                let start_offset = self.record_metas[idx].start_offset;
+                let record = &self.record_metas[idx];
+                let position = record.position;
+                let start_offset = record.start_offset;
                 if let Some(next_record_meta) = self.record_metas.get(idx + 1) {
                     let end_offset = next_record_meta.start_offset;
                     (
@@ -234,24 +231,25 @@ impl MemQueue {
             })
     }
 
-    /// Removes all records coming before position,
-    /// and including the record at "position".
-    pub async fn truncate(&mut self, truncate_up_to_pos: u64) {
+    /// Removes all records coming before position, and including the record at "position".
+    ///
+    /// If truncating to a future position, make the queue go forward to that position.
+    /// Return the number of record removed.
+    pub async fn truncate(&mut self, truncate_up_to_pos: u64) -> usize {
         if self.start_position > truncate_up_to_pos {
-            return;
+            return 0;
         }
-        let first_record_to_keep =
-            if let Some(first_record_to_keep) = self.position_to_idx(truncate_up_to_pos + 1) {
-                first_record_to_keep
-            } else {
-                // clear the queue entirely
-                // TODO it might make more sense to jump to truncate_up_to_pos instead of just
-                // going on step forward.
-                self.start_position = self.next_position();
-                self.concatenated_records.clear();
-                self.record_metas.clear();
-                return;
-            };
+        if truncate_up_to_pos + 1 >= self.next_position() {
+            self.start_position = truncate_up_to_pos + 1;
+            self.concatenated_records.clear();
+            let record_count = self.record_metas.len();
+            self.record_metas.clear();
+            return record_count;
+        }
+        let first_record_to_keep = self
+            .position_to_idx(truncate_up_to_pos + 1)
+            .map_or_else(std::convert::identity, std::convert::identity);
+
         let start_offset_to_keep: usize = self.record_metas[first_record_to_keep].start_offset;
         self.record_metas.drain(..first_record_to_keep);
         for record_meta in &mut self.record_metas {
@@ -260,7 +258,8 @@ impl MemQueue {
         self.concatenated_records
             .drain_start(start_offset_to_keep)
             .await;
-        self.start_position += first_record_to_keep as u64;
+        self.start_position = truncate_up_to_pos + 1;
+        return first_record_to_keep;
     }
 
     pub fn size(&self) -> usize {
