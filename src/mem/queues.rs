@@ -44,13 +44,15 @@ impl MemQueues {
         &self,
         queue: &str,
         range: R,
-    ) -> Option<impl Iterator<Item = (u64, Cow<[u8]>)> + '_>
+    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {
-        // We do not rely on `entry` in order to avoid
-        // the allocation.
-        Some(self.queues.get(queue)?.range(range))
+        if let Some(queue) = self.queues.get(queue) {
+            Ok(queue.range(range))
+        } else {
+            Err(MissingQueue(queue.to_string()))
+        }
     }
 
     fn get_queue(&self, queue: &str) -> Result<&MemQueue, MissingQueue> {

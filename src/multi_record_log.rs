@@ -8,7 +8,7 @@ use bytes::Buf;
 use tracing::warn;
 
 use crate::error::{
-    AppendError, CreateQueueError, DeleteQueueError, ReadRecordError, TruncateError,
+    AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
 use crate::mem;
 use crate::record::{MultiPlexedRecord, MultiRecord};
@@ -291,7 +291,7 @@ impl MultiRecordLog {
         &self,
         queue: &str,
         range: R,
-    ) -> Option<impl Iterator<Item = (u64, Cow<[u8]>)> + '_>
+    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {
