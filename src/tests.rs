@@ -357,3 +357,47 @@ async fn test_multi_record_size() {
         assert!(size_mem_truncate < size_mem_append);
     }
 }
+
+#[tokio::test]
+async fn test_open_corrupted() {
+    // a single frame is 32k. We write more than 2 frames worth of data, corrupt one,
+    // and verify we still read more than half the records successfully.
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        multi_record_log.create_queue("queue").await.unwrap();
+
+        // 8192 * 8bytes = 64k without overhead.
+        for i in 0..8192 {
+            multi_record_log
+                .append_record("queue", Some(i), format!("{i:08}").as_bytes())
+                .await
+                .unwrap();
+        }
+    }
+    {
+        use std::fs::OpenOptions;
+        use std::io::*;
+        // corrupt the file
+        let file = std::fs::read_dir(tempdir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|file| !file.file_name().to_str().unwrap().starts_with('.'))
+            .unwrap();
+
+        let mut file = OpenOptions::new().write(true).open(file.path()).unwrap();
+        // jump somewhere in the middle
+        file.seek(SeekFrom::Start(10240)).unwrap();
+        file.write(b"this will corrupt the file. Good :-)").unwrap();
+    }
+    {
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+
+        let mut count = 0;
+        for (pos, content) in multi_record_log.range("queue", ..).unwrap() {
+            assert_eq!(content, format!("{pos:08}").as_bytes());
+            count += 1;
+        }
+        assert!(count > 4096);
+    }
+}
