@@ -155,10 +155,8 @@ impl MemQueue {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         let next_position = self.next_position();
-        if next_position != 0 && next_position != target_position {
-            if target_position < next_position {
-                return Err(AppendError::Past);
-            }
+        if target_position < next_position {
+            return Err(AppendError::Past);
         }
         if self.start_position == 0u64 && self.record_metas.is_empty() {
             self.start_position = target_position;
@@ -199,13 +197,14 @@ impl MemQueue {
             Bound::Included(&start_from) => {
                 // if pos is included, we can use position_to_idx result directly
                 self.position_to_idx(start_from)
-                    .map_or_else(std::convert::identity, std::convert::identity)
+                    .unwrap_or_else(std::convert::identity)
             }
             Bound::Excluded(&start_from) => {
                 // if pos is excluded, an Err can be used directly, but an Ok must be incremented
                 // by one to skip the element matching exactly.
                 self.position_to_idx(start_from)
-                    .map_or_else(std::convert::identity, |idx| idx + 1)
+                    .map(|idx| idx + 1)
+                    .unwrap_or_else(std::convert::identity)
             }
             Bound::Unbounded => 0,
         };
@@ -248,7 +247,7 @@ impl MemQueue {
         }
         let first_record_to_keep = self
             .position_to_idx(truncate_up_to_pos + 1)
-            .map_or_else(std::convert::identity, std::convert::identity);
+            .unwrap_or_else(std::convert::identity);
 
         let start_offset_to_keep: usize = self.record_metas[first_record_to_keep].start_offset;
         self.record_metas.drain(..first_record_to_keep);
