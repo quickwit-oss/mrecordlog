@@ -258,7 +258,7 @@ impl MemQueue {
             .drain_start(start_offset_to_keep)
             .await;
         self.start_position = truncate_up_to_pos + 1;
-        return first_record_to_keep;
+        first_record_to_keep
     }
 
     pub fn size(&self) -> usize {

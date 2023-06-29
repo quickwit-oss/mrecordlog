@@ -388,7 +388,8 @@ async fn test_open_corrupted() {
         let mut file = OpenOptions::new().write(true).open(file.path()).unwrap();
         // jump somewhere in the middle
         file.seek(SeekFrom::Start(10240)).unwrap();
-        file.write(b"this will corrupt the file. Good :-)").unwrap();
+        file.write_all(b"this will corrupt the file. Good :-)")
+            .unwrap();
     }
     {
         let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();

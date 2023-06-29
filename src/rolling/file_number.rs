@@ -161,6 +161,7 @@ mod tests {
     #[test]
     fn test_file_number_with_clone_cannot_be_deleted() {
         let file = FileNumber::default();
+        #[allow(clippy::redundant_clone)]
         let _file_clone = file.clone();
         assert!(!file.can_be_deleted());
     }
