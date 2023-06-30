@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::RangeBounds;
 
-use crate::error::{AlreadyExists, AppendError, MissingQueue, TouchError};
+use crate::error::{AlreadyExists, AppendError, MissingQueue};
 use crate::mem::MemQueue;
 use crate::rolling::FileNumber;
 
@@ -44,13 +44,15 @@ impl MemQueues {
         &self,
         queue: &str,
         range: R,
-    ) -> Option<impl Iterator<Item = (u64, Cow<[u8]>)> + '_>
+    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {
-        // We do not rely on `entry` in order to avoid
-        // the allocation.
-        Some(self.queues.get(queue)?.range(range))
+        if let Some(queue) = self.queues.get(queue) {
+            Ok(queue.range(range))
+        } else {
+            Err(MissingQueue(queue.to_string()))
+        }
     }
 
     fn get_queue(&self, queue: &str) -> Result<&MemQueue, MissingQueue> {
@@ -92,10 +94,12 @@ impl MemQueues {
 
     /// Ensure that the queue is empty and start_position = next_position.
     ///
-    /// Returns an error if the queue already exists and contains elements,
-    /// or is empty but has a next_position that does not match.
-    pub fn ack_position(&mut self, queue: &str, next_position: u64) -> Result<(), TouchError> {
-        if let Some(queue) = self.queues.get(queue) {
+    /// If the queue doesn't exist, create it. If it does, but isn't empty or the position doesn't
+    /// match, truncate it and make it go forward to the requested position.
+    ///
+    /// This operation is meant only to rebuild the in memory queue from its on-disk state.
+    pub fn ack_position(&mut self, queue_name: &str, next_position: u64) {
+        if let Some(queue) = self.queues.get(queue_name) {
             // It is possible for `ack_position` to be called when a queue already exists.
             //
             // For instance, we may have recorded the position of an empty stale queue
@@ -104,16 +108,22 @@ impl MemQueues {
             // Another possibility is if an IO error occured right after recording position
             // and before deleting files.
             if !queue.is_empty() || queue.next_position() != next_position {
-                return Err(TouchError);
+                // if we are here, some updates to the queue were lost/corrupted, but it's no
+                // big deal as they were no longer considered part of the active state. We can
+                // delete and recreate the queue to put it in the expected state.
+                self.queues.remove(queue_name);
+                self.queues.insert(
+                    queue_name.to_string(),
+                    MemQueue::with_next_position(next_position),
+                );
             }
         } else {
             // The queue does not exist! Let's create it and set the right `next_position`.
             self.queues.insert(
-                queue.to_string(),
+                queue_name.to_string(),
                 MemQueue::with_next_position(next_position),
             );
         }
-        Ok(())
     }
 
     pub fn next_position(&self, queue: &str) -> Result<u64, MissingQueue> {
@@ -122,15 +132,14 @@ impl MemQueues {
 
     /// Removes records up to the supplied `position`,
     /// including the position itself.
-    //
+    ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    ///
-    /// If one or more files should be removed,
-    /// returns the range of the files that should be removed
-    pub async fn truncate(&mut self, queue: &str, position: u64) {
+    pub async fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            queue.truncate(position).await;
+            Some(queue.truncate(position).await)
+        } else {
+            None
         }
     }
 

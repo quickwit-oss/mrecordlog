@@ -34,10 +34,6 @@ impl From<MissingQueue> for DeleteQueueError {
 }
 
 #[derive(Debug, Error)]
-#[error("TouchError")]
-pub struct TouchError;
-
-#[derive(Debug, Error)]
 #[error("MultiRecordCorruption")]
 pub struct MultiRecordCorruption;
 
@@ -53,10 +49,6 @@ pub enum TruncateError {
     MissingQueue(String),
     #[error("Io error: {0}")]
     IoError(#[from] io::Error),
-    #[error("Touch error: {0}")]
-    TouchError(#[from] TouchError),
-    #[error("Future position forbidden")]
-    Future,
 }
 
 impl From<MissingQueue> for TruncateError {
@@ -73,8 +65,6 @@ pub enum AppendError {
     MissingQueue(String),
     #[error("Past")]
     Past,
-    #[error("Future")]
-    Future,
 }
 
 impl From<MissingQueue> for AppendError {

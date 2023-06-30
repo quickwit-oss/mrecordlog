@@ -110,35 +110,52 @@ async fn test_mem_queues_truncate() {
 }
 
 #[tokio::test]
-async fn test_mem_queues_skip_yield_error() {
+async fn test_mem_queues_skip_advance() {
     let mut mem_queues = MemQueues::default();
     mem_queues.create_queue("droopy").unwrap();
     assert!(mem_queues
         .append_record("droopy", &1.into(), 0, b"hello")
         .await
         .is_ok());
-    let append_res = mem_queues
+    assert!(mem_queues
         .append_record("droopy", &1.into(), 2, b"happy")
-        .await;
-    assert!(matches!(append_res, Err(AppendError::Future)));
-    assert!(matches!(
-        mem_queues
-            .append_record("droopy", &1.into(), 3, b"happy")
-            .await,
-        Err(AppendError::Future)
-    ));
+        .await
+        .is_ok());
+    assert!(mem_queues
+        .append_record("droopy", &1.into(), 3, b"happy")
+        .await
+        .is_ok());
     assert!(mem_queues
         .append_record("droopy", &1.into(), 1, b"happy")
         .await
-        .is_ok());
+        .is_err());
     let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
         &[
             (0, Cow::Borrowed(&b"hello"[..])),
-            (1, Cow::Borrowed(&b"happy"[..]))
+            (2, Cow::Borrowed(&b"happy"[..])),
+            (3, Cow::Borrowed(&b"happy"[..])),
         ]
     );
+    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 1..).unwrap().collect();
+    assert_eq!(
+        &droopy[..],
+        &[
+            (2, Cow::Borrowed(&b"happy"[..])),
+            (3, Cow::Borrowed(&b"happy"[..])),
+        ]
+    );
+    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 2..).unwrap().collect();
+    assert_eq!(
+        &droopy[..],
+        &[
+            (2, Cow::Borrowed(&b"happy"[..])),
+            (3, Cow::Borrowed(&b"happy"[..])),
+        ]
+    );
+    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 3..).unwrap().collect();
+    assert_eq!(&droopy[..], &[(3, Cow::Borrowed(&b"happy"[..])),]);
 }
 
 #[tokio::test]
@@ -193,7 +210,7 @@ async fn test_mem_queues_non_zero_first_el() {
 }
 
 #[tokio::test]
-async fn test_mem_queues_kee_filenum() {
+async fn test_mem_queues_keep_filenum() {
     let mut mem_queues = MemQueues::default();
 
     let files = (0..4).map(FileNumber::for_test).collect::<Vec<_>>();
@@ -256,7 +273,7 @@ async fn test_mem_queues_kee_filenum() {
     assert_eq!(empty_queues.len(), 1);
     assert_eq!(empty_queues[0].0, "droopy");
 
-    mem_queues.ack_position("droopy", 5).unwrap();
+    mem_queues.ack_position("droopy", 5);
 
     assert!(files[2].can_be_deleted());
 }
