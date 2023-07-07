@@ -154,6 +154,9 @@ impl MultiRecordLog {
     ///
     /// Returns an error if the queue already exists.
     pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
+        if self.queue_exists(queue) {
+            return Err(CreateQueueError::AlreadyExists);
+        }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
         self.sync().await?;
@@ -220,6 +223,7 @@ impl MultiRecordLog {
         let mut multi_record_spare_buffer = std::mem::take(&mut self.multi_record_spare_buffer);
         MultiRecord::serialize(payloads, position, &mut multi_record_spare_buffer);
         if multi_record_spare_buffer.is_empty() {
+            self.multi_record_spare_buffer = multi_record_spare_buffer;
             // empty transaction: don't persist it
             return Ok(None);
         }
@@ -264,11 +268,9 @@ impl MultiRecordLog {
     /// This method will always truncate the record log, and release the associated memory.
     /// It returns the number of record deleted.
     pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
-        let removed_count = self
-            .in_mem_queues
-            .truncate(queue, position)
-            .await
-            .unwrap_or(0);
+        if !self.queue_exists(queue) {
+            return Err(TruncateError::MissingQueue(queue.to_string()));
+        }
         self.record_log_writer
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;
@@ -284,6 +286,11 @@ impl MultiRecordLog {
             self.record_log_writer.directory().gc().await?;
         }
         self.sync_on_policy().await?;
+        let removed_count = self
+            .in_mem_queues
+            .truncate(queue, position)
+            .await
+            .unwrap_or(0);
         Ok(removed_count)
     }
 
@@ -295,8 +302,6 @@ impl MultiRecordLog {
     where
         R: RangeBounds<u64> + 'static,
     {
-        // We do not rely on `entry` in order to avoid
-        // the allocation.
         self.in_mem_queues.range(queue, range)
     }
 

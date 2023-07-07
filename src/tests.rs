@@ -402,3 +402,22 @@ async fn test_open_corrupted() {
         assert!(count > 4096);
     }
 }
+
+#[tokio::test]
+async fn test_create_twice() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        multi_record_log.create_queue("queue1").await.unwrap();
+        multi_record_log
+            .append_record("queue1", None, &b"hello"[..])
+            .await
+            .unwrap();
+        multi_record_log.create_queue("queue1").await.unwrap_err();
+        assert_eq!(multi_record_log.range("queue1", ..).unwrap().count(), 1);
+    }
+    {
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        assert_eq!(multi_record_log.range("queue1", ..).unwrap().count(), 1);
+    }
+}
