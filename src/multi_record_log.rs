@@ -330,4 +330,15 @@ impl MultiRecordLog {
     pub fn on_disk_size(&self) -> usize {
         self.record_log_writer.size()
     }
+
+    pub fn debug_info(&self) -> impl Iterator<Item = (String, String, usize)> + '_ {
+        self.in_mem_queues.debug_info().map(|(name, file, count)| {
+            (
+                name,
+                file.map(|file| file.filename())
+                    .unwrap_or_else(|| "<none>".to_string()),
+                count,
+            )
+        })
+    }
 }

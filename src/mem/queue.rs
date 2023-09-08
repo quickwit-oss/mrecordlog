@@ -265,4 +265,15 @@ impl MemQueue {
         self.concatenated_records.len()
             + self.record_metas.len() * std::mem::size_of::<RecordMeta>()
     }
+
+    pub fn debug_info(&self) -> (Option<FileNumber>, usize) {
+        let oldest_file = self
+            .record_metas
+            .iter()
+            .filter_map(|record| record.file_number.as_ref())
+            .cloned()
+            .next();
+        let count = self.record_metas.len();
+        (oldest_file, count)
+    }
 }

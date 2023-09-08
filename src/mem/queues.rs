@@ -149,4 +149,11 @@ impl MemQueues {
             .map(|(name, queue)| name.len() + queue.size())
             .sum()
     }
+
+    pub fn debug_info(&self) -> impl Iterator<Item = (String, Option<FileNumber>, usize)> + '_ {
+        self.queues.iter().map(|(name, queue)| {
+            let (file, count) = queue.debug_info();
+            (name.clone(), file, count)
+        })
+    }
 }

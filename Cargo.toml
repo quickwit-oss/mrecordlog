@@ -28,3 +28,7 @@ criterion = { version = "0.4", features = ["async_tokio"] }
 [[bench]]
 name = "bench"
 harness = false
+
+[[bin]]
+name = "debug_stuck"
+path = "src/debug_stuck.rs"
