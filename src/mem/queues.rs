@@ -126,6 +126,10 @@ impl MemQueues {
         }
     }
 
+    pub fn current_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
+        Ok(self.get_queue(queue)?.current_position())
+    }
+
     pub fn next_position(&self, queue: &str) -> Result<u64, MissingQueue> {
         Ok(self.get_queue(queue)?.next_position())
     }
