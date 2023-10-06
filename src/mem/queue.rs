@@ -136,7 +136,12 @@ impl MemQueue {
         self.record_metas.is_empty()
     }
 
-    /// Returns what should be the next position.
+    /// Returns the current (last) position.
+    pub fn current_position(&self) -> Option<u64> {
+        self.next_position().checked_sub(1)
+    }
+
+    /// Returns what the next position should be.
     pub fn next_position(&self) -> u64 {
         self.record_metas
             .last()

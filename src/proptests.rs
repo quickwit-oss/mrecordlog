@@ -264,7 +264,7 @@ fn queue_name_strategy() -> impl Strategy<Value = String> {
         proptest::collection::vec(proptest::prelude::any::<char>(), num_bytes).prop_map(
             move |chars| {
                 let mut s: String = String::new();
-                s.extend(chars.into_iter());
+                s.extend(chars);
                 let boundaries = (0..num_bytes).rev();
                 for boundary in boundaries {
                     if s.is_char_boundary(boundary) {
