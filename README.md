@@ -36,11 +36,11 @@ pub struct MultiRecordLog {
 
 # Non-goals
 
-This is not Kafka. That recordlog is designed for a "small amount of data".
+This is not Kafka. This recordlog is designed for a "small amount of data".
 All retained data can fit in RAM.
 
-In the context of quickwit, that queue is used in the PushAPI and is meant to contain
-1 worth of data. (At 60MB/s, means 3.6 GB of RAM)
+In the context of Quickwit, this queue is used in the ingest API and is meant to contain
+1 minute worth of data. (At 60MB/s, means 3.6 GB of RAM)
 
 Reading the recordlog files only happens on startup.
 High-performance when reading the recordlog files is not a goal.
@@ -49,7 +49,7 @@ Writing fast on the other hand is important.
 # Implementation details.
 
 `mrecordlog` is multiplexing several independent queues into the same record log.
-This approach has the merit of limiting the number of file descriptor necessary,
+This approach has the merit of limiting the number of file descriptors necessary,
 and more importantly, to limit the number of `fsync`.
 
 It also offers the possibility to truncate the queue for a given record log.
@@ -57,10 +57,10 @@ The actual deletion of the data happens when a file only contains deleted record
 Then, and only then, the entire file is deleted.
 
 That recordlog emits a new file every 1GB.
-A recordlog file is deleted, once all queues have been truncated after the
+A recordlog file is deleted once all queues have been truncated after the
 last record of a  of a file.
 
-There are no compaction logic.
+There is no compaction logic.
 
 # TODO
 

@@ -33,6 +33,7 @@ pub enum SyncPolicy {
     OnDelay(Duration),
 }
 
+#[derive(Debug)]
 enum SyncState {
     OnAppend,
     OnDelay {
@@ -263,10 +264,12 @@ impl MultiRecordLog {
         Ok(())
     }
 
-    /// Truncates the queue log.
+    /// Truncates the queue up to `position`, included. This method immediately truncates the
+    /// underlying in-memory queue whereas the backing log files are deleted asynchronously when
+    /// they become exclusively composed of deleted records.
     ///
-    /// This method will always truncate the record log, and release the associated memory.
-    /// It returns the number of record deleted.
+    /// This method will always truncate the record log and release the associated memory.
+    /// It returns the number of records deleted.
     pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
