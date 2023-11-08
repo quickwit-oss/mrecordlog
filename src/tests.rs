@@ -434,14 +434,45 @@ async fn test_last_position() {
     multi_record_log.last_position("queue1").unwrap_err();
 
     multi_record_log.create_queue("queue1").await.unwrap();
-    let current_pos = multi_record_log.last_position("queue1").unwrap();
-    assert!(current_pos.is_none());
+    let last_pos = multi_record_log.last_position("queue1").unwrap();
+    assert!(last_pos.is_none());
 
     multi_record_log
         .append_record("queue1", None, &b"hello"[..])
         .await
         .unwrap();
 
-    let current_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
-    assert_eq!(current_pos, 0);
+    let last_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
+    assert_eq!(last_pos, 0);
+
+    multi_record_log.truncate("queue1", 0).await.unwrap();
+
+    let last_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
+    assert_eq!(last_pos, 0);
+}
+
+#[tokio::test]
+async fn test_last_record() {
+    let tempdir = tempfile::tempdir().unwrap();
+
+    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+    multi_record_log.last_position("queue1").unwrap_err();
+
+    multi_record_log.create_queue("queue1").await.unwrap();
+    let last_record = multi_record_log.last_position("queue1").unwrap();
+    assert!(last_record.is_none());
+
+    multi_record_log
+        .append_record("queue1", None, &b"hello"[..])
+        .await
+        .unwrap();
+
+    let (last_position, last_record) = multi_record_log.last_record("queue1").unwrap().unwrap();
+    assert_eq!(last_position, 0);
+    assert_eq!(last_record, &b"hello"[..]);
+
+    multi_record_log.truncate("queue1", 0).await.unwrap();
+
+    let last_record = multi_record_log.last_record("queue1").unwrap();
+    assert!(last_record.is_none());
 }

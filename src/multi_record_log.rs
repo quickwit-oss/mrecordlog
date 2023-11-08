@@ -321,8 +321,14 @@ impl MultiRecordLog {
         self.record_log_writer.flush().await
     }
 
+    /// Returns the position of the last record appended to the queue.
     pub fn last_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
         self.in_mem_queues.last_position(queue)
+    }
+
+    /// Returns the last record stored in the queue.
+    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+        self.in_mem_queues.last_record(queue)
     }
 
     /// Returns the quantity of data stored in the in memory queue.

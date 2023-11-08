@@ -126,8 +126,14 @@ impl MemQueues {
         }
     }
 
+    /// Returns the position of the last record appended to the queue.
     pub fn last_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
         Ok(self.get_queue(queue)?.last_position())
+    }
+
+    /// Returns the last record stored in the queue.
+    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+        Ok(self.get_queue(queue)?.last_record())
     }
 
     pub fn next_position(&self, queue: &str) -> Result<u64, MissingQueue> {
