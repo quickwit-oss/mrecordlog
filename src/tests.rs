@@ -423,14 +423,14 @@ async fn test_create_twice() {
 }
 
 #[tokio::test]
-async fn test_current_position() {
+async fn test_last_position() {
     let tempdir = tempfile::tempdir().unwrap();
 
     let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-    multi_record_log.current_position("queue1").unwrap_err();
+    multi_record_log.last_position("queue1").unwrap_err();
 
     multi_record_log.create_queue("queue1").await.unwrap();
-    let current_pos = multi_record_log.current_position("queue1").unwrap();
+    let current_pos = multi_record_log.last_position("queue1").unwrap();
     assert!(current_pos.is_none());
 
     multi_record_log
@@ -438,9 +438,6 @@ async fn test_current_position() {
         .await
         .unwrap();
 
-    let current_pos = multi_record_log
-        .current_position("queue1")
-        .unwrap()
-        .unwrap();
+    let current_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
     assert_eq!(current_pos, 0);
 }

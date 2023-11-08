@@ -320,8 +320,8 @@ impl MultiRecordLog {
         self.record_log_writer.flush().await
     }
 
-    pub fn current_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
-        self.in_mem_queues.current_position(queue)
+    pub fn last_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
+        self.in_mem_queues.last_position(queue)
     }
 
     /// Returns the quantity of data stored in the in memory queue.
