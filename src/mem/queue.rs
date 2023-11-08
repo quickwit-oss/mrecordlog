@@ -136,9 +136,19 @@ impl MemQueue {
         self.record_metas.is_empty()
     }
 
-    /// Returns the current (last) position.
-    pub fn current_position(&self) -> Option<u64> {
+    /// Returns the position of the last record appended to the queue.
+    pub fn last_position(&self) -> Option<u64> {
         self.next_position().checked_sub(1)
+    }
+
+    /// Returns the last record stored in the queue.
+    pub fn last_record(&self) -> Option<(u64, Cow<[u8]>)> {
+        self.record_metas.last().map(|record| {
+            (
+                record.position,
+                self.concatenated_records.get_range(record.start_offset..),
+            )
+        })
     }
 
     /// Returns what the next position should be.

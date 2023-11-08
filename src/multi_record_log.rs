@@ -320,21 +320,27 @@ impl MultiRecordLog {
         self.record_log_writer.flush().await
     }
 
-    pub fn current_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
-        self.in_mem_queues.current_position(queue)
+    /// Returns the position of the last record appended to the queue.
+    pub fn last_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
+        self.in_mem_queues.last_position(queue)
+    }
+
+    /// Returns the last record stored in the queue.
+    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+        self.in_mem_queues.last_record(queue)
     }
 
     /// Returns the quantity of data stored in the in memory queue.
-    pub fn in_memory_size(&self) -> usize {
+    pub fn memory_usage(&self) -> usize {
         self.in_mem_queues.size()
     }
 
     /// Returns the used disk space.
     ///
-    /// This is typically higher than what [`Self::in_memory_size`] reports as records are first
+    /// This is typically higher than what [`Self::memory_usage`] reports as records are first
     /// marked as truncated, and only get deleted once all other records in the same file are
     /// truncated too.
-    pub fn on_disk_size(&self) -> usize {
+    pub fn disk_usage(&self) -> usize {
         self.record_log_writer.size()
     }
 }
