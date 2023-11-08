@@ -5,6 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bytes::Buf;
+use bytesize::ByteSize;
 use tracing::warn;
 
 use crate::error::{
@@ -325,16 +326,16 @@ impl MultiRecordLog {
     }
 
     /// Returns the quantity of data stored in the in memory queue.
-    pub fn in_memory_size(&self) -> usize {
-        self.in_mem_queues.size()
+    pub fn memory_usage(&self) -> ByteSize {
+        ByteSize(self.in_mem_queues.size() as u64)
     }
 
     /// Returns the used disk space.
     ///
-    /// This is typically higher than what [`Self::in_memory_size`] reports as records are first
+    /// This is typically higher than what [`Self::memory_usage`] reports as records are first
     /// marked as truncated, and only get deleted once all other records in the same file are
     /// truncated too.
-    pub fn on_disk_size(&self) -> usize {
-        self.record_log_writer.size()
+    pub fn disk_usage(&self) -> ByteSize {
+        ByteSize(self.record_log_writer.size() as u64)
     }
 }
