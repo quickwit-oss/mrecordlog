@@ -137,12 +137,14 @@ impl MultiRecordLog {
         }
         // io errors are non-recoverable
         let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer().await?;
-        Ok(MultiRecordLog {
+        let mut multi_record_log = MultiRecordLog {
             record_log_writer,
             in_mem_queues,
             next_sync: sync_policy.into(),
             multi_record_spare_buffer: Vec::new(),
-        })
+        };
+        multi_record_log.run_gc_if_necessary().await?;
+        Ok(multi_record_log)
     }
 
     #[cfg(test)]
@@ -169,8 +171,9 @@ impl MultiRecordLog {
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
-        self.sync().await?;
         self.in_mem_queues.delete_queue(queue)?;
+        self.run_gc_if_necessary().await?;
+        self.sync().await?;
         Ok(())
     }
 
@@ -252,7 +255,8 @@ impl MultiRecordLog {
         Ok(Some(max_position))
     }
 
-    async fn record_empty_queues_position(&mut self) -> Result<(), TruncateError> {
+    async fn record_empty_queues_position(&mut self) -> io::Result<()> {
+        let mut has_empty_queues = false;
         for (queue_id, queue) in self.in_mem_queues.empty_queues() {
             let next_position = queue.next_position();
             let record = MultiPlexedRecord::RecordPosition {
@@ -260,6 +264,12 @@ impl MultiRecordLog {
                 position: next_position,
             };
             self.record_log_writer.write_record(record).await?;
+            has_empty_queues = true
+        }
+        if has_empty_queues {
+            // We need to sync here! We are remove files from the FS
+            // so we need to make sure our empty queue positions are properly persisted.
+            self.sync().await?;
         }
         Ok(())
     }
@@ -277,6 +287,17 @@ impl MultiRecordLog {
         self.record_log_writer
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;
+        let removed_count = self
+            .in_mem_queues
+            .truncate(queue, position)
+            .await
+            .unwrap_or(0);
+        self.run_gc_if_necessary().await?;
+        self.sync_on_policy().await?;
+        Ok(removed_count)
+    }
+
+    async fn run_gc_if_necessary(&mut self) -> io::Result<()> {
         if self
             .record_log_writer
             .directory()
@@ -285,16 +306,15 @@ impl MultiRecordLog {
             // We are about to delete files.
             // Let's make sure we record the offsets of the empty queues
             // so that we don't lose that information after dropping the files.
+            //
+            // But first we clone the current file number to make sure that the file that will
+            // contain the truncate positions it self won't be GC'ed.
+            let _file_number = self.record_log_writer.current_file().clone();
             self.record_empty_queues_position().await?;
+
             self.record_log_writer.directory().gc().await?;
         }
-        self.sync_on_policy().await?;
-        let removed_count = self
-            .in_mem_queues
-            .truncate(queue, position)
-            .await
-            .unwrap_or(0);
-        Ok(removed_count)
+        Ok(())
     }
 
     pub fn range<R>(

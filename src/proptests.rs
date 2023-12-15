@@ -401,3 +401,22 @@ async fn test_multi_record() {
         );
     }
 }
+
+/// Unit tests reproducing bugs found with proptest in the past.
+#[tokio::test]
+async fn test_proptest_multirecord_reproduce_1() {
+    let block_size = 32_731;
+    let mut env = PropTestEnv::new(block_size).await;
+    env.apply(Operation::MultiAppend {
+        queue: "q1",
+        count: 4,
+        skip_one_pos: false,
+    })
+    .await;
+    env.apply(Operation::Truncate {
+        queue: "q1",
+        pos: 3,
+    })
+    .await;
+    env.apply(Operation::Reopen {}).await;
+}
