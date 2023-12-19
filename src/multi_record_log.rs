@@ -5,12 +5,13 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bytes::Buf;
-use tracing::warn;
+use tracing::{debug, event_enabled, warn, Level};
 
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
 use crate::mem;
+use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
@@ -88,6 +89,7 @@ impl MultiRecordLog {
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
+        debug!("loading wal");
         loop {
             let file_number = record_reader.read().current_file().clone();
             let Ok(record) = record_reader.read_record().await else {
@@ -281,6 +283,7 @@ impl MultiRecordLog {
     /// This method will always truncate the record log and release the associated memory.
     /// It returns the number of records deleted.
     pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
+        debug!(position = position, queue = queue, "truncate queue");
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
@@ -298,6 +301,7 @@ impl MultiRecordLog {
     }
 
     async fn run_gc_if_necessary(&mut self) -> io::Result<()> {
+        debug!("run_gc_if_necessary");
         if self
             .record_log_writer
             .directory()
@@ -311,8 +315,16 @@ impl MultiRecordLog {
             // contain the truncate positions it self won't be GC'ed.
             let _file_number = self.record_log_writer.current_file().clone();
             self.record_empty_queues_position().await?;
-
             self.record_log_writer.directory().gc().await?;
+        }
+        // only execute the following if we are above the debug  level in tokio tracing
+        if event_enabled!(Level::DEBUG) {
+            for queue in self.list_queues() {
+                let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
+                let first_pos = queue.range(..).next().map(|(pos, _)| pos);
+                let last_pos = queue.last_position();
+                debug!(first_pos=?first_pos, last_pos=?last_pos, "queue");
+            }
         }
         Ok(())
     }
