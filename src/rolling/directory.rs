@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
+use tracing::debug;
 
 use super::{FileNumber, FileTracker};
 use crate::rolling::{FILE_NUM_BYTES, FRAME_NUM_BYTES};
@@ -92,6 +93,7 @@ impl Directory {
     pub(crate) async fn gc(&mut self) -> io::Result<()> {
         while let Some(file) = self.files.take_first_unused() {
             let filepath = filepath(&self.dir, &file);
+            debug!(file=%filepath.display(), "gc remove file");
             tokio::fs::remove_file(&filepath).await?;
         }
         Ok(())
