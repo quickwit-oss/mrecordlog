@@ -2,6 +2,7 @@ use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use futures_util::stream::StreamExt;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 
@@ -30,6 +31,10 @@ fn filename_to_position(file_name: &str) -> Option<u64> {
 
 pub(crate) fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
     dir.join(file_number.filename())
+}
+
+pub(crate) fn filepath_for_number(dir: &Path, file_number: u64) -> PathBuf {
+    dir.join(super::file_number::filename_from_number(file_number))
 }
 
 async fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<File> {
@@ -108,6 +113,32 @@ impl Directory {
         file.seek(SeekFrom::Start(0u64)).await?;
         Ok(file)
     }
+
+    pub async fn sync_data(&self, files: std::ops::Range<u64>) -> io::Result<()> {
+        let file_sync_tasks =
+            futures_util::stream::iter(files.into_iter()).map(|file_number| async move {
+                let filepath = filepath_for_number(&self.dir, file_number);
+                match OpenOptions::new()
+                    .read(true)
+                    .create(false)
+                    .open(&filepath)
+                    .await
+                {
+                    Ok(file) => file.sync_data().await,
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+                    e => e.map(|_| ()),
+                }
+            });
+
+        // We do this to not have more than a few fd open at once.
+        // Not doing that breaks tests, but is unlikely to cause issues in practice
+        let mut futures = file_sync_tasks.buffer_unordered(16);
+        while let Some(res) = futures.next().await {
+            res?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct RollingReader {
@@ -150,6 +181,7 @@ impl RollingReader {
             offset,
             file_number: self.file_number.clone(),
             directory: self.directory,
+            last_fsync: self.file_number.file_number(),
         })
     }
 }
@@ -210,6 +242,8 @@ pub struct RollingWriter {
     offset: usize,
     file_number: FileNumber,
     pub(crate) directory: Directory,
+    // we don't want this to be a FileNumber because it would keep that file alive
+    last_fsync: u64,
 }
 
 impl RollingWriter {
@@ -266,7 +300,17 @@ impl BlockWrite for RollingWriter {
     }
 
     async fn flush(&mut self) -> io::Result<()> {
-        self.file.flush().await
+        let current_file_number = self.file_number.file_number();
+        tokio::try_join!(
+            async {
+                self.file.flush().await?;
+                self.file.get_ref().sync_data().await
+            },
+            self.directory
+                .sync_data(self.last_fsync..current_file_number)
+        )?;
+        self.last_fsync = current_file_number;
+        Ok(())
     }
 
     fn num_bytes_remaining_in_block(&self) -> usize {

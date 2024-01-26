@@ -115,11 +115,10 @@ impl FileNumber {
     }
 
     pub fn filename(&self) -> String {
-        format!("wal-{:020}", self.file_number)
+        filename_from_number(*self.file_number)
     }
 
-    #[cfg(test)]
-    pub fn file_number(&self) -> u64 {
+    pub(crate) fn file_number(&self) -> u64 {
         *self.file_number
     }
 
@@ -133,6 +132,10 @@ impl std::borrow::Borrow<u64> for FileNumber {
     fn borrow(&self) -> &u64 {
         &self.file_number
     }
+}
+
+pub(crate) fn filename_from_number(number: u64) -> String {
+    format!("wal-{:020}", number)
 }
 
 #[cfg(test)]
