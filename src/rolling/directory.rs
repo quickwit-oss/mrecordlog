@@ -181,7 +181,7 @@ impl RollingReader {
             offset,
             file_number: self.file_number.clone(),
             directory: self.directory,
-            last_fsync: self.file_number.file_number(),
+            last_fsync_file_number: self.file_number.file_number(),
         })
     }
 }
@@ -243,7 +243,7 @@ pub struct RollingWriter {
     file_number: FileNumber,
     pub(crate) directory: Directory,
     // we don't want this to be a FileNumber because it would keep that file alive
-    last_fsync: u64,
+    last_fsync_file_number: u64,
 }
 
 impl RollingWriter {
@@ -307,9 +307,9 @@ impl BlockWrite for RollingWriter {
                 self.file.get_ref().sync_data().await
             },
             self.directory
-                .sync_data(self.last_fsync..current_file_number)
+                .sync_data(self.last_fsync_file_number..current_file_number)
         )?;
-        self.last_fsync = current_file_number;
+        self.last_fsync_file_number = current_file_number;
         Ok(())
     }
 
