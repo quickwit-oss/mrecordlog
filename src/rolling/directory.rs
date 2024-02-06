@@ -2,7 +2,6 @@ use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use futures_util::stream::StreamExt;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter};
 
@@ -115,26 +114,20 @@ impl Directory {
     }
 
     pub async fn sync_data(&self, files: std::ops::Range<u64>) -> io::Result<()> {
-        let file_sync_tasks =
-            futures_util::stream::iter(files.into_iter()).map(|file_number| async move {
-                let filepath = filepath_for_number(&self.dir, file_number);
-                match OpenOptions::new()
-                    .read(true)
-                    .create(false)
-                    .open(&filepath)
-                    .await
-                {
-                    Ok(file) => file.sync_data().await,
-                    Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-                    e => e.map(|_| ()),
+        for file_number in files.into_iter() {
+            let filepath = filepath_for_number(&self.dir, file_number);
+            match OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open(&filepath)
+                .await
+            {
+                Ok(file) => {
+                    file.sync_data().await?;
                 }
-            });
-
-        // We do this to not have more than a few fd open at once.
-        // Not doing that breaks tests, but is unlikely to cause issues in practice
-        let mut futures = file_sync_tasks.buffer_unordered(16);
-        while let Some(res) = futures.next().await {
-            res?;
+                Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+                Err(err) => return Err(err),
+            }
         }
 
         Ok(())
