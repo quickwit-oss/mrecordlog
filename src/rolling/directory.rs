@@ -32,7 +32,7 @@ pub(crate) fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
     dir.join(file_number.filename())
 }
 
-pub(crate) fn filepath_for_number(dir: &Path, file_number: u64) -> PathBuf {
+fn filepath_for_number(dir: &Path, file_number: u64) -> PathBuf {
     dir.join(super::file_number::filename_from_number(file_number))
 }
 
