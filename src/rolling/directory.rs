@@ -292,17 +292,21 @@ impl BlockWrite for RollingWriter {
         Ok(())
     }
 
-    async fn flush(&mut self) -> io::Result<()> {
-        let current_file_number = self.file_number.file_number();
-        tokio::try_join!(
-            async {
-                self.file.flush().await?;
-                self.file.get_ref().sync_data().await
-            },
-            self.directory
-                .sync_data(self.last_fsync_file_number..current_file_number)
-        )?;
-        self.last_fsync_file_number = current_file_number;
+    async fn flush(&mut self, fsync: bool) -> io::Result<()> {
+        if fsync {
+            let current_file_number = self.file_number.file_number();
+            tokio::try_join!(
+                async {
+                    self.file.flush().await?;
+                    self.file.get_ref().sync_data().await
+                },
+                self.directory
+                    .sync_data(self.last_fsync_file_number..current_file_number)
+            )?;
+            self.last_fsync_file_number = current_file_number;
+        } else {
+            self.file.flush().await?;
+        }
         Ok(())
     }
 

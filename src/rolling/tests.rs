@@ -15,7 +15,7 @@ async fn test_read_write() {
         writer.write(&buffer[..]).await.unwrap();
         buffer.fill(2u8);
         writer.write(&buffer[..]).await.unwrap();
-        writer.flush().await.unwrap();
+        writer.flush(false).await.unwrap();
     }
     let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).await.unwrap();
     assert!(rolling_reader.block().iter().all(|&b| b == 0));
@@ -36,7 +36,7 @@ async fn test_read_write_2nd_block() {
             buffer.fill(i);
             writer.write(&buffer[..]).await.unwrap();
         }
-        writer.flush().await.unwrap();
+        writer.flush(false).await.unwrap();
     }
     {
         let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).await.unwrap();
@@ -50,7 +50,7 @@ async fn test_read_write_2nd_block() {
             buffer.fill(i);
             writer.write(&buffer[..]).await.unwrap();
         }
-        writer.flush().await.unwrap();
+        writer.flush(false).await.unwrap();
     }
     {
         let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).await.unwrap();
@@ -76,7 +76,7 @@ async fn test_read_truncated() {
             buffer.fill(i as u8);
             writer.write(&buffer[..]).await.unwrap();
         }
-        writer.flush().await.unwrap();
+        writer.flush(false).await.unwrap();
         let file_ids = writer.list_file_numbers();
         let middle_file = file_ids[1];
         let filepath =

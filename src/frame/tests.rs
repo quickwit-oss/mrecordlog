@@ -22,7 +22,7 @@ async fn test_frame_simple() {
             .write_frame(FrameType::Last, &b"fgh"[..])
             .await
             .unwrap();
-        frame_writer.flush().await.unwrap();
+        frame_writer.flush(false).await.unwrap();
         frame_writer.into_writer()
     };
     let buffer: Vec<u8> = block_writer.into();
@@ -50,11 +50,11 @@ async fn test_frame_corruption_in_payload() -> io::Result<()> {
         frame_writer
             .write_frame(FrameType::First, &b"abc"[..])
             .await?;
-        frame_writer.flush().await?;
+        frame_writer.flush(false).await?;
         frame_writer
             .write_frame(FrameType::Middle, &b"de"[..])
             .await?;
-        frame_writer.flush().await?;
+        frame_writer.flush(false).await?;
         frame_writer.into_writer().into()
     };
     buf[8] = 0u8;
@@ -78,7 +78,7 @@ async fn repeat_empty_frame_util(repeat: usize) -> Vec<u8> {
             .await
             .unwrap();
     }
-    frame_writer.flush().await.unwrap();
+    frame_writer.flush(false).await.unwrap();
     frame_writer.into_writer().into()
 }
 

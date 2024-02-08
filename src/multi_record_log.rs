@@ -18,7 +18,8 @@ use crate::rolling::RollingWriter;
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
     in_mem_queues: mem::MemQueues,
-    next_sync: SyncState,
+    next_flush: SyncState,
+    next_fsync: SyncState,
     // A simple buffer we reuse to avoid allocation.
     multi_record_spare_buffer: Vec<u8>,
 }
@@ -31,6 +32,8 @@ pub enum SyncPolicy {
     /// last sync elapsed. This means if no new operation arrive, some content may not get
     /// flushed for a while.
     OnDelay(Duration),
+    /// Sync and flush only on call to [`MultiRecordLog::sync()`]
+    OnRequest,
 }
 
 #[derive(Debug)]
@@ -40,6 +43,7 @@ enum SyncState {
         next_sync: Instant,
         interval: Duration,
     },
+    OnRequest,
 }
 
 impl SyncState {
@@ -47,12 +51,13 @@ impl SyncState {
         match self {
             SyncState::OnAppend => true,
             SyncState::OnDelay { next_sync, .. } => *next_sync < Instant::now(),
+            SyncState::OnRequest => false,
         }
     }
 
     fn update_synced(&mut self) {
         match self {
-            SyncState::OnAppend => (),
+            SyncState::OnAppend | SyncState::OnRequest => (),
             SyncState::OnDelay {
                 ref mut next_sync,
                 interval,
@@ -69,20 +74,22 @@ impl From<SyncPolicy> for SyncState {
                 next_sync: Instant::now() + dur,
                 interval: dur,
             },
+            SyncPolicy::OnRequest => SyncState::OnRequest,
         }
     }
 }
 
 impl MultiRecordLog {
-    /// Open the multi record log, syncing after each operation.
+    /// Open the multi record log, flushing after each operation, but not fsyncing.
     pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
-        Self::open_with_prefs(directory_path, SyncPolicy::OnAppend).await
+        Self::open_with_prefs(directory_path, SyncPolicy::OnAppend, SyncPolicy::OnRequest).await
     }
 
     /// Open the multi record log, syncing following the provided policy.
     pub async fn open_with_prefs(
         directory_path: &Path,
-        sync_policy: SyncPolicy,
+        flush_policy: SyncPolicy,
+        fsync_policy: SyncPolicy,
     ) -> Result<Self, ReadRecordError> {
         // io errors are non-recoverable
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
@@ -140,7 +147,8 @@ impl MultiRecordLog {
         Ok(MultiRecordLog {
             record_log_writer,
             in_mem_queues,
-            next_sync: sync_policy.into(),
+            next_flush: flush_policy.into(),
+            next_fsync: fsync_policy.into(),
             multi_record_spare_buffer: Vec::new(),
         })
     }
@@ -160,7 +168,7 @@ impl MultiRecordLog {
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
-        self.sync().await?;
+        self.sync(true).await?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
@@ -169,7 +177,7 @@ impl MultiRecordLog {
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
-        self.sync().await?;
+        self.sync(true).await?;
         self.in_mem_queues.delete_queue(queue)?;
         Ok(())
     }
@@ -309,15 +317,19 @@ impl MultiRecordLog {
     }
 
     async fn sync_on_policy(&mut self) -> io::Result<()> {
-        if self.next_sync.should_sync() {
-            self.sync().await?;
-            self.next_sync.update_synced();
+        if self.next_flush.should_sync() {
+            let should_fsync = self.next_fsync.should_sync();
+            self.sync(should_fsync).await?;
+            self.next_flush.update_synced();
+            if should_fsync {
+                self.next_fsync.update_synced();
+            }
         }
         Ok(())
     }
 
-    pub async fn sync(&mut self) -> io::Result<()> {
-        self.record_log_writer.flush().await
+    pub async fn sync(&mut self, fsync: bool) -> io::Result<()> {
+        self.record_log_writer.flush(fsync).await
     }
 
     /// Returns the quantity of data stored in the in memory queue.

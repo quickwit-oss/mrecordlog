@@ -15,7 +15,7 @@ async fn test_no_data() {
 async fn test_empty_record() {
     let mut writer = RecordWriter::in_memory();
     writer.write_record("").await.unwrap();
-    writer.flush().await.unwrap();
+    writer.flush(false).await.unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert_eq!(reader.read_record::<&str>().await.unwrap(), Some(""));
@@ -27,7 +27,7 @@ async fn test_simple_record() {
     let mut writer = RecordWriter::in_memory();
     let record = "hello";
     writer.write_record(record).await.unwrap();
-    writer.flush().await.unwrap();
+    writer.flush(false).await.unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert!(matches!(
@@ -46,7 +46,7 @@ async fn test_spans_over_more_than_one_block() {
     let long_entry: String = make_long_entry(80_000);
     let mut writer = RecordWriter::in_memory();
     writer.write_record(long_entry.as_str()).await.unwrap();
-    writer.flush().await.unwrap();
+    writer.flush(false).await.unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     let record_payload: &str = reader.read_record().await.unwrap().unwrap();
@@ -63,7 +63,7 @@ async fn test_block_requires_padding() {
     let mut writer = RecordWriter::in_memory();
     writer.write_record(long_record.as_str()).await.unwrap();
     writer.write_record(short_record).await.unwrap();
-    writer.flush().await.unwrap();
+    writer.flush(false).await.unwrap();
     let buffer: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buffer[..]));
     assert_eq!(
@@ -86,7 +86,7 @@ async fn test_first_chunk_empty() {
     let mut writer = RecordWriter::in_memory();
     writer.write_record(&long_record[..]).await.unwrap();
     writer.write_record(short_record).await.unwrap();
-    writer.flush().await.unwrap();
+    writer.flush(false).await.unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert_eq!(
@@ -107,7 +107,7 @@ async fn test_behavior_upon_corruption() {
     for record in &records {
         writer.write_record(record.as_str()).await.unwrap();
     }
-    writer.flush().await.unwrap();
+    writer.flush(false).await.unwrap();
     let mut buffer: Vec<u8> = writer.into_writer().into();
     {
         let mut reader = RecordReader::open(ArrayReader::from(&buffer[..]));

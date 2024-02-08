@@ -42,8 +42,8 @@ impl<W: BlockWrite + Unpin> FrameWriter<W> {
     /// When writing to a file, this performs a syscall and
     /// the OS will be in charge of eventually writing the data
     /// to disk, but this is not sufficient to ensure durability.
-    pub async fn flush(&mut self) -> io::Result<()> {
-        self.wrt.flush().await
+    pub async fn flush(&mut self, fsync: bool) -> io::Result<()> {
+        self.wrt.flush(fsync).await
     }
 
     /// Returns the maximum amount of bytes that can be written.
