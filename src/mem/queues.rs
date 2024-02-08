@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::RangeBounds;
 
+use tracing::{info, warn};
+
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
 use crate::mem::MemQueue;
 use crate::rolling::FileNumber;
@@ -23,7 +25,9 @@ impl MemQueues {
     }
 
     pub fn delete_queue(&mut self, queue: &str) -> Result<(), MissingQueue> {
+        info!(queue = queue, "deleting queue");
         if self.queues.remove(queue).is_none() {
+            warn!(queue = queue, "attempted to remove a non-existing queue");
             return Err(MissingQueue(queue.to_string()));
         }
         Ok(())
@@ -55,7 +59,7 @@ impl MemQueues {
         }
     }
 
-    fn get_queue(&self, queue: &str) -> Result<&MemQueue, MissingQueue> {
+    pub(crate) fn get_queue(&self, queue: &str) -> Result<&MemQueue, MissingQueue> {
         // We do not rely on `entry` in order to avoid
         // the allocation.
         self.queues
@@ -124,6 +128,16 @@ impl MemQueues {
                 MemQueue::with_next_position(next_position),
             );
         }
+    }
+
+    /// Returns the position of the last record appended to the queue.
+    pub fn last_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
+        Ok(self.get_queue(queue)?.last_position())
+    }
+
+    /// Returns the last record stored in the queue.
+    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+        Ok(self.get_queue(queue)?.last_record())
     }
 
     pub fn next_position(&self, queue: &str) -> Result<u64, MissingQueue> {

@@ -264,7 +264,7 @@ fn queue_name_strategy() -> impl Strategy<Value = String> {
         proptest::collection::vec(proptest::prelude::any::<char>(), num_bytes).prop_map(
             move |chars| {
                 let mut s: String = String::new();
-                s.extend(chars.into_iter());
+                s.extend(chars);
                 let boundaries = (0..num_bytes).rev();
                 for boundary in boundaries {
                     if s.is_char_boundary(boundary) {
@@ -400,4 +400,23 @@ async fn test_multi_record() {
             ]
         );
     }
+}
+
+/// Unit tests reproducing bugs found with proptest in the past.
+#[tokio::test]
+async fn test_proptest_multirecord_reproduce_1() {
+    let block_size = 32_731;
+    let mut env = PropTestEnv::new(block_size).await;
+    env.apply(Operation::MultiAppend {
+        queue: "q1",
+        count: 4,
+        skip_one_pos: false,
+    })
+    .await;
+    env.apply(Operation::Truncate {
+        queue: "q1",
+        pos: 3,
+    })
+    .await;
+    env.apply(Operation::Reopen {}).await;
 }

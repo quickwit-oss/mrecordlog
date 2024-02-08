@@ -5,12 +5,13 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bytes::Buf;
-use tracing::warn;
+use tracing::{debug, event_enabled, warn, Level};
 
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
 use crate::mem;
+use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
@@ -95,6 +96,7 @@ impl MultiRecordLog {
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
+        debug!("loading wal");
         loop {
             let file_number = record_reader.read().current_file().clone();
             let Ok(record) = record_reader.read_record().await else {
@@ -144,13 +146,15 @@ impl MultiRecordLog {
         }
         // io errors are non-recoverable
         let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer().await?;
-        Ok(MultiRecordLog {
+        let mut multi_record_log = MultiRecordLog {
             record_log_writer,
             in_mem_queues,
             next_flush: flush_policy.into(),
             next_fsync: fsync_policy.into(),
             multi_record_spare_buffer: Vec::new(),
-        })
+        };
+        multi_record_log.run_gc_if_necessary().await?;
+        Ok(multi_record_log)
     }
 
     #[cfg(test)]
@@ -168,7 +172,7 @@ impl MultiRecordLog {
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
-        self.sync(true).await?;
+        self.sync_and_maybe_flush().await?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
@@ -177,8 +181,9 @@ impl MultiRecordLog {
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
-        self.sync(true).await?;
         self.in_mem_queues.delete_queue(queue)?;
+        self.run_gc_if_necessary().await?;
+        self.sync_and_maybe_flush().await?;
         Ok(())
     }
 
@@ -260,7 +265,8 @@ impl MultiRecordLog {
         Ok(Some(max_position))
     }
 
-    async fn record_empty_queues_position(&mut self) -> Result<(), TruncateError> {
+    async fn record_empty_queues_position(&mut self) -> io::Result<()> {
+        let mut has_empty_queues = false;
         for (queue_id, queue) in self.in_mem_queues.empty_queues() {
             let next_position = queue.next_position();
             let record = MultiPlexedRecord::RecordPosition {
@@ -268,6 +274,12 @@ impl MultiRecordLog {
                 position: next_position,
             };
             self.record_log_writer.write_record(record).await?;
+            has_empty_queues = true
+        }
+        if has_empty_queues {
+            // We need to sync here! We are remove files from the FS
+            // so we need to make sure our empty queue positions are properly persisted.
+            self.sync_and_maybe_flush().await?;
         }
         Ok(())
     }
@@ -279,12 +291,25 @@ impl MultiRecordLog {
     /// This method will always truncate the record log and release the associated memory.
     /// It returns the number of records deleted.
     pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
+        debug!(position = position, queue = queue, "truncate queue");
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
         self.record_log_writer
             .write_record(MultiPlexedRecord::Truncate { position, queue })
             .await?;
+        let removed_count = self
+            .in_mem_queues
+            .truncate(queue, position)
+            .await
+            .unwrap_or(0);
+        self.run_gc_if_necessary().await?;
+        self.sync_on_policy().await?;
+        Ok(removed_count)
+    }
+
+    async fn run_gc_if_necessary(&mut self) -> io::Result<()> {
+        debug!("run_gc_if_necessary");
         if self
             .record_log_writer
             .directory()
@@ -293,16 +318,23 @@ impl MultiRecordLog {
             // We are about to delete files.
             // Let's make sure we record the offsets of the empty queues
             // so that we don't lose that information after dropping the files.
+            //
+            // But first we clone the current file number to make sure that the file that will
+            // contain the truncate positions it self won't be GC'ed.
+            let _file_number = self.record_log_writer.current_file().clone();
             self.record_empty_queues_position().await?;
             self.record_log_writer.directory().gc().await?;
         }
-        self.sync_on_policy().await?;
-        let removed_count = self
-            .in_mem_queues
-            .truncate(queue, position)
-            .await
-            .unwrap_or(0);
-        Ok(removed_count)
+        // only execute the following if we are above the debug  level in tokio tracing
+        if event_enabled!(Level::DEBUG) {
+            for queue in self.list_queues() {
+                let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
+                let first_pos = queue.range(..).next().map(|(pos, _)| pos);
+                let last_pos = queue.last_position();
+                debug!(first_pos=?first_pos, last_pos=?last_pos, "queue");
+            }
+        }
+        Ok(())
     }
 
     pub fn range<R>(
@@ -316,33 +348,51 @@ impl MultiRecordLog {
         self.in_mem_queues.range(queue, range)
     }
 
+    /// Flush if the policy says it should be done
     async fn sync_on_policy(&mut self) -> io::Result<()> {
         if self.next_flush.should_sync() {
-            let should_fsync = self.next_fsync.should_sync();
-            self.sync(should_fsync).await?;
+            self.sync_and_maybe_flush().await?;
             self.next_flush.update_synced();
-            if should_fsync {
-                self.next_fsync.update_synced();
-            }
         }
         Ok(())
     }
 
+    /// Definitely flush, and maybe fsync if policy says it should be done
+    async fn sync_and_maybe_flush(&mut self) -> io::Result<()> {
+        let should_fsync = self.next_fsync.should_sync();
+        self.sync(should_fsync).await?;
+        if should_fsync {
+            self.next_fsync.update_synced();
+        }
+        Ok(())
+    }
+
+    /// Flush and optionnally fsync data
     pub async fn sync(&mut self, fsync: bool) -> io::Result<()> {
         self.record_log_writer.flush(fsync).await
     }
 
+    /// Returns the position of the last record appended to the queue.
+    pub fn last_position(&self, queue: &str) -> Result<Option<u64>, MissingQueue> {
+        self.in_mem_queues.last_position(queue)
+    }
+
+    /// Returns the last record stored in the queue.
+    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+        self.in_mem_queues.last_record(queue)
+    }
+
     /// Returns the quantity of data stored in the in memory queue.
-    pub fn in_memory_size(&self) -> usize {
+    pub fn memory_usage(&self) -> usize {
         self.in_mem_queues.size()
     }
 
     /// Returns the used disk space.
     ///
-    /// This is typically higher than what [`Self::in_memory_size`] reports as records are first
+    /// This is typically higher than what [`Self::memory_usage`] reports as records are first
     /// marked as truncated, and only get deleted once all other records in the same file are
     /// truncated too.
-    pub fn on_disk_size(&self) -> usize {
+    pub fn disk_usage(&self) -> usize {
         self.record_log_writer.size()
     }
 }
