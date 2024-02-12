@@ -157,10 +157,16 @@ impl MemQueues {
         }
     }
 
-    pub fn size(&self) -> usize {
-        self.queues
-            .iter()
-            .map(|(name, queue)| name.len() + queue.size())
-            .sum()
+    pub fn size(&self) -> (usize, usize) {
+        (
+            self.queues
+                .iter()
+                .map(|(name, queue)| name.len() + queue.size())
+                .sum(),
+            self.queues
+                .iter()
+                .map(|(name, queue)| name.capacity() + queue.capacity())
+                .sum(),
+        )
     }
 }

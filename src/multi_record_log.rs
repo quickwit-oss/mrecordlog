@@ -362,8 +362,8 @@ impl MultiRecordLog {
         self.in_mem_queues.last_record(queue)
     }
 
-    /// Returns the quantity of data stored in the in memory queue.
-    pub fn memory_usage(&self) -> usize {
+    /// Returns the quantity of data stored in the in memory queue, and the allocated queue size
+    pub fn memory_usage(&self) -> (usize, usize) {
         self.in_mem_queues.size()
     }
 
