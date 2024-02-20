@@ -74,6 +74,16 @@ impl From<SyncPolicy> for SyncState {
     }
 }
 
+
+fn target_queue<'a>(record: &MultiPlexedRecord<'a>) -> &'a str {
+    match record {
+        MultiPlexedRecord::AppendRecords { queue, position, records } => queue,
+        MultiPlexedRecord::Truncate { queue, position } => queue,
+        MultiPlexedRecord::RecordPosition { queue, position } => queue,
+        MultiPlexedRecord::DeleteQueue { queue, position } => queue,
+    }
+}
+
 impl MultiRecordLog {
     /// Open the multi record log, syncing after each operation.
     pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
@@ -92,17 +102,25 @@ impl MultiRecordLog {
         debug!("loading wal");
         loop {
             let file_number = record_reader.read().current_file().clone();
-            let Ok(record) = record_reader.read_record().await else {
+            let Ok(record) = record_reader.read_record::<MultiPlexedRecord>().await else {
                 warn!("Detected corrupted record: some data may have been lost");
                 continue;
             };
             if let Some(record) = record {
+                let target_queue_str = target_queue(&record);
+                // println!("{target_queue_str}");
+                let faulty_queue = "app-logs-66:01HP6FVQZD4GB8F30N0QY7P3MJ/_ingest-source/01HPT44DTQ619V6BMB9Q948FE1";
+                if target_queue_str != faulty_queue {
+                    continue;
+                }
+                // dbg!(target_queue_str);
                 match record {
                     MultiPlexedRecord::AppendRecords {
                         queue,
                         records,
                         position,
                     } => {
+                        // println!("append record {position}");
                         if !in_mem_queues.contains_queue(queue) {
                             in_mem_queues.ack_position(queue, position);
                         }
@@ -122,12 +140,15 @@ impl MultiRecordLog {
                         }
                     }
                     MultiPlexedRecord::Truncate { position, queue } => {
+                        println!("truncate {position}");
                         in_mem_queues.truncate(queue, position).await;
                     }
                     MultiPlexedRecord::RecordPosition { queue, position } => {
+                        println!("record {position}");
                         in_mem_queues.ack_position(queue, position);
                     }
                     MultiPlexedRecord::DeleteQueue { queue, position: _ } => {
+                        println!("delete queue");
                         // can fail if we don't know about the queue getting deleted. It's fine to
                         // just ignore the error, the queue no longer exists either way.
                         let _ = in_mem_queues.delete_queue(queue);

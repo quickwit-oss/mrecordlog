@@ -170,7 +170,9 @@ impl MemQueue {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         let next_position = self.next_position();
+        // println!("next_position {}", next_position);
         if target_position < next_position {
+            println!("next_position {} target position {}", next_position, target_position);
             return Err(AppendError::Past);
         }
         if self.start_position == 0u64 && self.record_metas.is_empty() {

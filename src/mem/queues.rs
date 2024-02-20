@@ -82,6 +82,7 @@ impl MemQueues {
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
+        // println!("queue {queue}");
         self.get_queue_mut(queue)?
             .append_record(file_number, target_position, payload)
             .await?;
