@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bytes::Buf;
-use tracing::{debug, event_enabled, warn, Level};
+use tracing::{debug, event_enabled, info, warn, Level};
 
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
@@ -159,6 +159,7 @@ impl MultiRecordLog {
     ///
     /// Returns an error if the queue already exists.
     pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
+        info!(queue=queue, "create queue");
         if self.queue_exists(queue) {
             return Err(CreateQueueError::AlreadyExists);
         }
@@ -170,6 +171,7 @@ impl MultiRecordLog {
     }
 
     pub async fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError> {
+        info!(queue=queue, "delete queue");
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
@@ -283,7 +285,7 @@ impl MultiRecordLog {
     /// This method will always truncate the record log and release the associated memory.
     /// It returns the number of records deleted.
     pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
-        debug!(position = position, queue = queue, "truncate queue");
+        info!(position = position, queue = queue, "truncate queue");
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
@@ -323,7 +325,7 @@ impl MultiRecordLog {
                 let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
                 let first_pos = queue.range(..).next().map(|(pos, _)| pos);
                 let last_pos = queue.last_position();
-                debug!(first_pos=?first_pos, last_pos=?last_pos, "queue");
+                debug!(first_pos=?first_pos, last_pos=?last_pos, "queue positions after gc");
             }
         }
         Ok(())
