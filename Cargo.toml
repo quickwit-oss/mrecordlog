@@ -12,6 +12,7 @@ rust-version = "1.68"                         # 1.67 contains an UB we would tri
 async-trait = "0.1"
 bytes = "1"
 crc32fast = "1.2"
+libc = "0.2.153" # we need libc to fsync directories
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
