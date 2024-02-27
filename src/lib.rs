@@ -9,7 +9,7 @@ mod record;
 mod recordlog;
 mod rolling;
 
-pub use self::multi_record_log::{MultiRecordLog, SyncPolicy};
+pub use self::multi_record_log::{MultiRecordLog, PersistAction, PersistPolicy};
 
 #[cfg(test)]
 mod tests;

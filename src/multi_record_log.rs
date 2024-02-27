@@ -19,63 +19,105 @@ use crate::rolling::RollingWriter;
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
     in_mem_queues: mem::MemQueues,
-    next_flush: SyncState,
-    next_fsync: SyncState,
+    next_persist: PersistState,
     // A simple buffer we reuse to avoid allocation.
     multi_record_spare_buffer: Vec<u8>,
 }
 
-/// Policy for synchonizing and flushing data
-pub enum SyncPolicy {
-    /// Sync and flush at each operation
-    OnAppend,
-    /// Sync and flush regularly. Sync is realized on the first operation after the delay since
-    /// last sync elapsed. This means if no new operation arrive, some content may not get
-    /// flushed for a while.
-    OnDelay(Duration),
-    /// Sync and flush only on call to [`MultiRecordLog::sync()`]
-    OnRequest,
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PersistAction {
+    /// The buffer will be flushed to the OS, but not necessarily to the disk.
+    Flush,
+    /// The buffer will be flushed to the OS, and the OS will be asked to flush
+    /// it to the disk.
+    FlushAndFsync,
+}
+
+impl PersistAction {
+    fn is_fsync(self) -> bool {
+        self == PersistAction::FlushAndFsync
+    }
+}
+
+/// We have two type of operations on the mrecordlog.
+///
+/// Critical records are relatively rare and really need to be persisted:
+/// - RecordPosition { queue: &'a str, position: u64 },
+/// - DeleteQueue.
+///
+/// For these operations, we want to always flush and fsync.
+///
+/// On the other hand,
+/// - Truncate
+/// - AppendRecords
+/// are considered are more frequent and one might want to sacrifice
+/// persistence guarantees for performance.
+///
+/// The `PersistPolicy` defines the trade-off applied for the second kind of
+/// operations.
+#[derive(Clone, Debug)]
+pub enum PersistPolicy {
+    /// Only persist data when asked for, and when critical records are written
+    DoNothing(PersistAction),
+    /// Pesiste data once every interval, and when critical records are written
+    OnDelay {
+        interval: Duration,
+        action: PersistAction,
+    },
+    /// Persist data after each action
+    Always(PersistAction),
 }
 
 #[derive(Debug)]
-enum SyncState {
-    OnAppend,
+enum PersistState {
+    OnAppend(PersistAction),
     OnDelay {
         next_sync: Instant,
         interval: Duration,
+        action: PersistAction,
     },
-    OnRequest,
+    OnRequest(PersistAction),
 }
 
-impl SyncState {
-    fn should_sync(&self) -> bool {
+impl PersistState {
+    fn should_persist(&self) -> bool {
         match self {
-            SyncState::OnAppend => true,
-            SyncState::OnDelay { next_sync, .. } => *next_sync < Instant::now(),
-            SyncState::OnRequest => false,
+            PersistState::OnAppend(_) => true,
+            PersistState::OnDelay { next_sync, .. } => *next_sync < Instant::now(),
+            PersistState::OnRequest(_) => false,
         }
     }
 
-    fn update_synced(&mut self) {
+    fn update_persisted(&mut self) {
         match self {
-            SyncState::OnAppend | SyncState::OnRequest => (),
-            SyncState::OnDelay {
+            PersistState::OnAppend(_) | PersistState::OnRequest(_) => (),
+            PersistState::OnDelay {
                 ref mut next_sync,
                 interval,
+                ..
             } => *next_sync = Instant::now() + *interval,
         }
     }
+
+    fn action(&self) -> PersistAction {
+        match self {
+            PersistState::OnAppend(action) => *action,
+            PersistState::OnDelay { action, .. } => *action,
+            PersistState::OnRequest(action) => *action,
+        }
+    }
 }
 
-impl From<SyncPolicy> for SyncState {
-    fn from(val: SyncPolicy) -> SyncState {
+impl From<PersistPolicy> for PersistState {
+    fn from(val: PersistPolicy) -> PersistState {
         match val {
-            SyncPolicy::OnAppend => SyncState::OnAppend,
-            SyncPolicy::OnDelay(dur) => SyncState::OnDelay {
-                next_sync: Instant::now() + dur,
-                interval: dur,
+            PersistPolicy::Always(action) => PersistState::OnAppend(action),
+            PersistPolicy::OnDelay { interval, action } => PersistState::OnDelay {
+                next_sync: Instant::now() + interval,
+                interval,
+                action,
             },
-            SyncPolicy::OnRequest => SyncState::OnRequest,
+            PersistPolicy::DoNothing(action) => PersistState::OnRequest(action),
         }
     }
 }
@@ -83,14 +125,13 @@ impl From<SyncPolicy> for SyncState {
 impl MultiRecordLog {
     /// Open the multi record log, flushing after each operation, but not fsyncing.
     pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
-        Self::open_with_prefs(directory_path, SyncPolicy::OnAppend, SyncPolicy::OnRequest).await
+        Self::open_with_prefs(directory_path, PersistPolicy::Always(PersistAction::Flush)).await
     }
 
     /// Open the multi record log, syncing following the provided policy.
     pub async fn open_with_prefs(
         directory_path: &Path,
-        flush_policy: SyncPolicy,
-        fsync_policy: SyncPolicy,
+        persist_policy: PersistPolicy,
     ) -> Result<Self, ReadRecordError> {
         // io errors are non-recoverable
         let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
@@ -149,8 +190,7 @@ impl MultiRecordLog {
         let mut multi_record_log = MultiRecordLog {
             record_log_writer,
             in_mem_queues,
-            next_flush: flush_policy.into(),
-            next_fsync: fsync_policy.into(),
+            next_persist: persist_policy.into(),
             multi_record_spare_buffer: Vec::new(),
         };
         multi_record_log.run_gc_if_necessary().await?;
@@ -172,7 +212,7 @@ impl MultiRecordLog {
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record).await?;
-        self.sync_and_maybe_flush().await?;
+        self.persist_and_maybe_fsync().await?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
@@ -183,7 +223,7 @@ impl MultiRecordLog {
         self.record_log_writer.write_record(record).await?;
         self.in_mem_queues.delete_queue(queue)?;
         self.run_gc_if_necessary().await?;
-        self.sync_and_maybe_flush().await?;
+        self.persist_and_maybe_fsync().await?;
         Ok(())
     }
 
@@ -249,7 +289,7 @@ impl MultiRecordLog {
             records,
         };
         self.record_log_writer.write_record(record).await?;
-        self.sync_on_policy().await?;
+        self.persist_on_policy().await?;
 
         let mut max_position = position;
         for record in records {
@@ -279,7 +319,7 @@ impl MultiRecordLog {
         if has_empty_queues {
             // We need to sync here! We are remove files from the FS
             // so we need to make sure our empty queue positions are properly persisted.
-            self.sync_and_maybe_flush().await?;
+            self.persist_and_maybe_fsync().await?;
         }
         Ok(())
     }
@@ -304,7 +344,7 @@ impl MultiRecordLog {
             .await
             .unwrap_or(0);
         self.run_gc_if_necessary().await?;
-        self.sync_on_policy().await?;
+        self.persist_on_policy().await?;
         Ok(removed_count)
     }
 
@@ -349,26 +389,20 @@ impl MultiRecordLog {
     }
 
     /// Flush if the policy says it should be done
-    async fn sync_on_policy(&mut self) -> io::Result<()> {
-        if self.next_flush.should_sync() {
-            self.sync_and_maybe_flush().await?;
-            self.next_flush.update_synced();
+    async fn persist_on_policy(&mut self) -> io::Result<()> {
+        if self.next_persist.should_persist() {
+            self.persist_and_maybe_fsync().await?;
+            self.next_persist.update_persisted();
         }
         Ok(())
     }
 
-    /// Definitely flush, and maybe fsync if policy says it should be done
-    async fn sync_and_maybe_flush(&mut self) -> io::Result<()> {
-        let should_fsync = self.next_fsync.should_sync();
-        self.sync(should_fsync).await?;
-        if should_fsync {
-            self.next_fsync.update_synced();
-        }
-        Ok(())
+    async fn persist_and_maybe_fsync(&mut self) -> io::Result<()> {
+        self.persist(self.next_persist.action().is_fsync()).await
     }
 
     /// Flush and optionnally fsync data
-    pub async fn sync(&mut self, fsync: bool) -> io::Result<()> {
+    pub async fn persist(&mut self, fsync: bool) -> io::Result<()> {
         self.record_log_writer.flush(fsync).await
     }
 
