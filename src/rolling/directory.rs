@@ -33,10 +33,6 @@ pub(crate) fn filepath(dir: &Path, file_number: &FileNumber) -> PathBuf {
     dir.join(file_number.filename())
 }
 
-fn filepath_for_number(dir: &Path, file_number: u64) -> PathBuf {
-    dir.join(super::file_number::filename_from_number(file_number))
-}
-
 async fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<File> {
     let new_filepath = filepath(dir_path, file_number);
     let mut file = OpenOptions::new()
@@ -121,31 +117,6 @@ impl Directory {
             .await
             .map_err(|_| io::Error::other("fsync panicked".to_string()))?
     }
-
-    pub async fn sync_data(&self, files: std::ops::Range<u64>) -> io::Result<()> {
-        let directory_sync_future = self.sync_directory();
-        let file_sync_future = async {
-            for file_number in files.into_iter() {
-                let filepath = filepath_for_number(&self.dir, file_number);
-                match OpenOptions::new()
-                    .read(true)
-                    .create(false)
-                    .open(&filepath)
-                    .await
-                {
-                    Ok(file) => {
-                        file.sync_data().await?;
-                    }
-                    Err(err) if err.kind() == io::ErrorKind::NotFound => (),
-                    Err(err) => return Err(err),
-                }
-            }
-            Ok(())
-        };
-
-        tokio::try_join!(directory_sync_future, file_sync_future)?;
-        Ok(())
-    }
 }
 
 /// fsyncdata a directory. This is a blocking operation, you should run it in a blocking task.
@@ -226,7 +197,6 @@ impl RollingReader {
             offset,
             file_number: self.file_number.clone(),
             directory: self.directory,
-            last_fsync_file_number: self.file_number.file_number(),
         })
     }
 }
@@ -288,7 +258,6 @@ pub struct RollingWriter {
     file_number: FileNumber,
     pub(crate) directory: Directory,
     // we don't want this to be a FileNumber because it would keep that file alive
-    last_fsync_file_number: u64,
 }
 
 impl RollingWriter {
@@ -323,7 +292,13 @@ impl BlockWrite for RollingWriter {
         }
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.offset + buf.len() > FILE_NUM_BYTES {
-            self.file.flush().await?;
+            tokio::try_join!(
+                async {
+                    self.file.flush().await?;
+                    self.file.get_ref().sync_data().await
+                },
+                self.directory.sync_directory()
+            )?;
 
             let (file_number, file) =
                 if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
@@ -346,16 +321,13 @@ impl BlockWrite for RollingWriter {
 
     async fn flush(&mut self, fsync: bool) -> io::Result<()> {
         if fsync {
-            let current_file_number = self.file_number.file_number();
             tokio::try_join!(
                 async {
                     self.file.flush().await?;
                     self.file.get_ref().sync_data().await
                 },
-                self.directory
-                    .sync_data(self.last_fsync_file_number..current_file_number)
+                self.directory.sync_directory()
             )?;
-            self.last_fsync_file_number = current_file_number;
         } else {
             self.file.flush().await?;
         }
