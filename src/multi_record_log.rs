@@ -159,7 +159,7 @@ impl MultiRecordLog {
     ///
     /// Returns an error if the queue already exists.
     pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
-        info!(queue=queue, "create queue");
+        info!(queue = queue, "create queue");
         if self.queue_exists(queue) {
             return Err(CreateQueueError::AlreadyExists);
         }
@@ -171,7 +171,7 @@ impl MultiRecordLog {
     }
 
     pub async fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError> {
-        info!(queue=queue, "delete queue");
+        info!(queue = queue, "delete queue");
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
         self.record_log_writer.write_record(record).await?;
