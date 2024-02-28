@@ -112,48 +112,13 @@ impl Directory {
     }
 
     async fn sync_directory(&self) -> io::Result<()> {
-        let path = self.dir.clone();
-        tokio::task::spawn_blocking(move || fsync_data_directory(&path))
-            .await
-            .map_err(|_| io::Error::other("fsync panicked".to_string()))?
-    }
-}
-
-/// fsyncdata a directory. This is a blocking operation, you should run it in a blocking task.
-fn fsync_data_directory(path: &Path) -> io::Result<()> {
-    // sadly, neither tokio nor the std comes with anything to sync a directory (see also
-    // https://github.com/tokio-rs/tokio/issues/1922 ).
-    // So we do things manually.
-    use std::os::unix::ffi::OsStrExt;
-
-    let target = path.as_os_str().as_bytes().as_ptr().cast::<libc::c_char>();
-
-    unsafe {
-        // safety: target is a valid path, and provided flags are valid for open()
-        let fd = libc::open(target, libc::O_RDONLY | libc::O_DIRECTORY);
-        if fd < 0 {
-            let errno = *libc::__errno_location();
-            return Err(io::Error::from_raw_os_error(errno));
-        }
-        // safety: fd is a valid file descriptor
-        let res = libc::fsync(fd);
-        if res == 0 {
-            // safety: fd is a valid file descriptor
-            let res = libc::close(fd);
-            if res == 0 {
-                Ok(())
-            } else {
-                let errno = *libc::__errno_location();
-                Err(io::Error::from_raw_os_error(errno))
-            }
-        } else {
-            let errno = *libc::__errno_location();
-
-            // safety: fd is a valid file descriptor
-            // we already got an error, don't handle one on close (if any)
-            let _res = libc::close(fd);
-            Err(io::Error::from_raw_os_error(errno))
-        }
+        let mut open_opts = OpenOptions::new();
+        // Linux needs read to be set, otherwise returns EINVAL
+        // write must not be set, or it fails with EISDIR
+        open_opts.read(true);
+        let fd = open_opts.open(&self.dir).await?;
+        fd.sync_data().await?;
+        Ok(())
     }
 }
 
