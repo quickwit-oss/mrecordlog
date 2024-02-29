@@ -10,11 +10,11 @@ use tracing::{debug, event_enabled, info, warn, Level};
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
-use crate::mem;
 use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
+use crate::{mem, Record};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -208,7 +208,7 @@ impl MultiRecordLog {
     /// However this function succeeding does not necessarily means records where stored, be sure
     /// to call [`Self::sync`] to make sure changes are persisted if you don't use
     /// [`SyncPolicy::OnAppend`] (which is the default).
-    pub fn append_records<'a, T: Iterator<Item = impl Buf>>(
+    pub fn append_records<T: Iterator<Item = impl Buf>>(
         &mut self,
         queue: &str,
         position_opt: Option<u64>,
@@ -244,12 +244,14 @@ impl MultiRecordLog {
         self.sync_on_policy()?;
 
         let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
-
+        let mut next_position = mem_queue.next_position();
         let mut max_position = position;
         for record in records {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
-            mem_queue.append_record(&file_number, position, payload)?;
+            assert!(position >= next_position);
+            next_position = position + 1;
+            mem_queue.append_record(&file_number, position, payload);
             max_position = position;
         }
 
@@ -353,7 +355,7 @@ impl MultiRecordLog {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+    pub fn last_record(&self, queue: &str) -> Result<Option<Record<'_>>, MissingQueue> {
         self.in_mem_queues.last_record(queue)
     }
 

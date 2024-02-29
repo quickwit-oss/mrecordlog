@@ -15,17 +15,17 @@ It is possible to truncate each of the queues individually.
 
 ```rust
 pub struct MultiRecordLog {
-    pub fn  create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError>;
-    pub fn  delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError>;
+    pub fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError>;
+    pub fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError>;
     pub fn queue_exists(&self, queue: &str) -> bool;
     pub fn list_queues(&self) -> impl Iterator<Item = &str> {
-    pub fn  append_record(
+    pub fn append_record(
         &mut self,
         queue: &str,
         position_opt: Option<u64>,
         payload: &[u8],
     );
-    pub fn  truncate(&mut self, queue: &str, position: u64) -> Result<(), TruncateError>;
+    pub fn truncate(&mut self, queue: &str, position: u64) -> Result<(), TruncateError>;
     pub fn range<R>(
         &self,
         queue: &str,

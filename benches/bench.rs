@@ -37,12 +37,7 @@ fn insert_throughput(c: &mut Criterion) {
                 ),
                 &(record_size, record_count, loop_count),
                 |b, (record_size, record_count, loop_count)| {
-                    let runtime = tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    b.to_async(runtime)
-                        .iter(|| bench_single_size(*record_size, *record_count, *loop_count));
+                    b.iter(|| bench_single_size(*record_size, *record_count, *loop_count));
                 },
             );
         }

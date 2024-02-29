@@ -2,7 +2,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
 use tracing::info;
 
 use super::{FileNumber, FileTracker};
@@ -37,7 +36,7 @@ fn create_file(dir_path: &Path, file_number: &FileNumber) -> io::Result<File> {
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)
-        .open(&new_filepath)?;
+        .open(new_filepath)?;
     file.set_len(FILE_NUM_BYTES as u64)?;
     file.seek(SeekFrom::Start(0))?;
     Ok(file)
@@ -47,8 +46,7 @@ impl Directory {
     /// Open a `Directory`, or create a new, empty, one. `dir_path` must exist and be a directory.
     pub fn open(dir_path: &Path) -> io::Result<Directory> {
         let mut file_numbers: Vec<u64> = Default::default();
-        let mut read_dir = std::fs::read_dir(dir_path)?;
-        while let Some(dir_entry_res) = read_dir.next() {
+        for dir_entry_res in std::fs::read_dir(dir_path)? {
             let dir_entry = dir_entry_res?;
             if !dir_entry.file_type()?.is_file() {
                 continue;
@@ -101,7 +99,7 @@ impl Directory {
     /// Open the wal file with the provided FileNumber.
     pub fn open_file(&self, file_number: &FileNumber) -> io::Result<File> {
         let filepath = filepath(&self.dir, file_number);
-        let mut file = OpenOptions::new().read(true).write(true).open(&filepath)?;
+        let mut file = OpenOptions::new().read(true).write(true).open(filepath)?;
         file.seek(SeekFrom::Start(0u64))?;
         Ok(file)
     }
@@ -159,7 +157,6 @@ fn read_block(file: &mut File, block: &mut [u8; BLOCK_NUM_BYTES]) -> io::Result<
     }
 }
 
-#[async_trait]
 impl BlockRead for RollingReader {
     fn next_block(&mut self) -> io::Result<bool> {
         let success = read_block(&mut self.file, &mut self.block)?;
@@ -230,7 +227,6 @@ impl RollingWriter {
     }
 }
 
-#[async_trait]
 impl BlockWrite for RollingWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<()> {
         if buf.is_empty() {

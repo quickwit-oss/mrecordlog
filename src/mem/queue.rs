@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds};
 
-use crate::error::AppendError;
 use crate::rolling::FileNumber;
+use crate::Record;
 
 #[derive(Default)]
 struct RollingBuffer {
@@ -93,7 +93,7 @@ struct RecordMeta {
 }
 
 #[derive(Default)]
-pub struct MemQueue {
+pub(crate) struct MemQueue {
     // Concatenated records
     concatenated_records: RollingBuffer,
     start_position: u64,
@@ -119,12 +119,10 @@ impl MemQueue {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self) -> Option<(u64, Cow<[u8]>)> {
-        self.record_metas.last().map(|record| {
-            (
-                record.position,
-                self.concatenated_records.get_range(record.start_offset..),
-            )
+    pub fn last_record(&self) -> Option<Record> {
+        self.record_metas.last().map(|record| Record {
+            position: record.position,
+            payload: self.concatenated_records.get_range(record.start_offset..),
         })
     }
 
@@ -145,11 +143,7 @@ impl MemQueue {
         file_number: &FileNumber,
         target_position: u64,
         payload: &[u8],
-    ) -> Result<(), AppendError> {
-        let next_position = self.next_position();
-        if target_position < next_position {
-            return Err(AppendError::Past);
-        }
+    ) {
         if self.start_position == 0u64 && self.record_metas.is_empty() {
             self.start_position = target_position;
         }
@@ -171,7 +165,6 @@ impl MemQueue {
         };
         self.record_metas.push(record_meta);
         self.concatenated_records.extend(payload);
-        Ok(())
     }
 
     /// Get the position of the record.

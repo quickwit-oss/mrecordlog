@@ -95,14 +95,19 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
     }
 
     fn deserialize(buffer: &'a [u8]) -> Option<MultiPlexedRecord<'a>> {
-        let enum_tag = RecordType::try_from(buffer[0]).ok()?;
-        if buffer.len() < 8 {
+        const HEADER_LEN: usize = 11;
+        if buffer.len() < HEADER_LEN {
             return None;
         }
-        let position = u64::from_le_bytes(buffer[1..9].try_into().unwrap());
-        let queue_len = u16::from_le_bytes(buffer[9..11].try_into().unwrap()) as usize;
-        let queue = std::str::from_utf8(&buffer[11..][..queue_len]).ok()?;
-        let payload = &buffer[11 + queue_len..];
+        let (header, body) = buffer.split_at(HEADER_LEN);
+        let enum_tag = RecordType::try_from(header[0]).ok()?;
+        let position = u64::from_le_bytes(header[1..9].try_into().unwrap());
+        let queue_len = u16::from_le_bytes(header[9..HEADER_LEN].try_into().unwrap()) as usize;
+        if body.len() < queue_len {
+            return None;
+        }
+        let (queue_bytes, payload) = body.split_at(queue_len);
+        let queue = std::str::from_utf8(queue_bytes).ok()?;
         match enum_tag {
             RecordType::AppendRecords => Some(MultiPlexedRecord::AppendRecords {
                 queue,

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use bytes::Buf;
 
-use crate::MultiRecordLog;
+use crate::{MultiRecordLog, Record};
 
 fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Vec<Cow<'a, [u8]>> {
     let mut records = Vec::new();
@@ -442,9 +442,9 @@ fn test_last_record() {
         .append_record("queue1", None, &b"hello"[..])
         .unwrap();
 
-    let (last_position, last_record) = multi_record_log.last_record("queue1").unwrap().unwrap();
-    assert_eq!(last_position, 0);
-    assert_eq!(last_record, &b"hello"[..]);
+    let Record { position, payload } = multi_record_log.last_record("queue1").unwrap().unwrap();
+    assert_eq!(position, 0);
+    assert_eq!(payload, &b"hello"[..]);
 
     multi_record_log.truncate("queue1", 0).unwrap();
 

@@ -7,12 +7,12 @@ use tracing::{info, warn};
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
 use crate::mem::MemQueue;
 use crate::rolling::FileNumber;
+use crate::Record;
 
 #[derive(Default)]
-pub struct MemQueues {
+pub(crate) struct MemQueues {
     queues: HashMap<String, MemQueue>,
 }
-
 impl MemQueues {
     /// The file number argument is here unused. Its point is just to make sure we
     /// flushed the file before updating the in memory queue.
@@ -82,8 +82,12 @@ impl MemQueues {
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
-        self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)?;
+        let queue = self.get_queue_mut(queue)?;
+        let next_position = queue.next_position();
+        if target_position < next_position {
+            return Err(AppendError::Past);
+        }
+        queue.append_record(file_number, target_position, payload);
         Ok(())
     }
 
@@ -135,7 +139,7 @@ impl MemQueues {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+    pub fn last_record(&self, queue: &str) -> Result<Option<Record>, MissingQueue> {
         Ok(self.get_queue(queue)?.last_record())
     }
 
