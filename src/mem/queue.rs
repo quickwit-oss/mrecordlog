@@ -26,7 +26,7 @@ impl RollingBuffer {
         self.buffer.shrink_to_fit();
     }
 
-    async fn drain_start(&mut self, pos: usize) {
+    fn drain_start(&mut self, pos: usize) {
         let target_capacity = self.len() * 9 / 8;
         self.buffer.drain(..pos);
         // In order to avoid leaking memory we shrink the buffer.
@@ -37,35 +37,12 @@ impl RollingBuffer {
         // shrinking  / allocating for small variations.
 
         if self.buffer.capacity() > target_capacity {
-            let mut buffer = std::mem::take(&mut self.buffer);
-            self.buffer = tokio::task::spawn_blocking(move || {
-                buffer.shrink_to(target_capacity);
-                buffer
-            })
-            .await
-            .unwrap();
+            self.buffer.shrink_to(target_capacity);
         }
     }
 
-    async fn extend(&mut self, slice: &[u8]) {
-        self.reserve(slice.len()).await;
+    fn extend(&mut self, slice: &[u8]) {
         self.buffer.extend(slice.iter().copied());
-    }
-
-    /// This function is used to make sure we don't block an async executor on a long
-    /// resize
-    async fn reserve(&mut self, capacity: usize) {
-        if self.buffer.capacity() - self.buffer.len() < capacity {
-            // we need to realocate, which can be slow. Do that on a
-            // blocking task
-            let mut buffer = std::mem::take(&mut self.buffer);
-            self.buffer = tokio::task::spawn_blocking(move || {
-                buffer.reserve(capacity);
-                buffer
-            })
-            .await
-            .unwrap();
-        }
     }
 
     fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<[u8]> {
@@ -163,7 +140,7 @@ impl MemQueue {
     /// Returns an error if the record was not added.
     ///
     /// AppendError if the record is strangely in the past or is too much in the future.
-    pub async fn append_record(
+    pub fn append_record(
         &mut self,
         file_number: &FileNumber,
         target_position: u64,
@@ -193,7 +170,7 @@ impl MemQueue {
             position: target_position,
         };
         self.record_metas.push(record_meta);
-        self.concatenated_records.extend(payload).await;
+        self.concatenated_records.extend(payload);
         Ok(())
     }
 
@@ -249,7 +226,7 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub async fn truncate(&mut self, truncate_up_to_pos: u64) -> usize {
+    pub fn truncate(&mut self, truncate_up_to_pos: u64) -> usize {
         if self.start_position > truncate_up_to_pos {
             return 0;
         }
@@ -269,9 +246,7 @@ impl MemQueue {
         for record_meta in &mut self.record_metas {
             record_meta.start_offset -= start_offset_to_keep;
         }
-        self.concatenated_records
-            .drain_start(start_offset_to_keep)
-            .await;
+        self.concatenated_records.drain_start(start_offset_to_keep);
         self.start_position = truncate_up_to_pos + 1;
         first_record_to_keep
     }

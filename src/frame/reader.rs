@@ -47,13 +47,13 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
         crate::BLOCK_NUM_BYTES - self.cursor
     }
 
-    async fn go_to_next_block_if_necessary(&mut self) -> Result<(), ReadFrameError> {
+    fn go_to_next_block_if_necessary(&mut self) -> Result<(), ReadFrameError> {
         let num_bytes_to_end_of_block = self.num_bytes_to_end_of_block();
         let need_to_skip_block = self.block_corrupted || num_bytes_to_end_of_block < HEADER_LEN;
         if !need_to_skip_block {
             return Ok(());
         }
-        if !self.reader.next_block().await? {
+        if !self.reader.next_block()? {
             return Err(ReadFrameError::NotAvailable);
         }
 
@@ -79,8 +79,8 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
     }
 
     // Reads the next frame.
-    pub async fn read_frame(&mut self) -> Result<(FrameType, &[u8]), ReadFrameError> {
-        self.go_to_next_block_if_necessary().await?;
+    pub fn read_frame(&mut self) -> Result<(FrameType, &[u8]), ReadFrameError> {
+        self.go_to_next_block_if_necessary()?;
         let header = self.get_frame_header()?;
         self.cursor += HEADER_LEN;
         if self.cursor + header.len() > BLOCK_NUM_BYTES {
@@ -105,9 +105,9 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
 }
 
 impl FrameReader<RollingReader> {
-    pub async fn into_writer(self) -> io::Result<FrameWriter<RollingWriter>> {
-        let mut rolling_writer: RollingWriter = self.reader.into_writer().await?;
-        rolling_writer.forward(self.cursor).await?;
+    pub fn into_writer(self) -> io::Result<FrameWriter<RollingWriter>> {
+        let mut rolling_writer: RollingWriter = self.reader.into_writer()?;
+        rolling_writer.forward(self.cursor)?;
         Ok(FrameWriter::create(rolling_writer))
     }
 }

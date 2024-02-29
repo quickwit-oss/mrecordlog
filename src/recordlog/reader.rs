@@ -35,10 +35,10 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
     }
 
     /// Advance cursor and deserialize the next record.
-    pub async fn read_record<'a, S: Serializable<'a>>(
+    pub fn read_record<'a, S: Serializable<'a>>(
         &'a mut self,
     ) -> Result<Option<S>, ReadRecordError> {
-        let has_record = self.go_next().await?;
+        let has_record = self.go_next()?;
         if has_record {
             let record = self.record().ok_or(ReadRecordError::Corruption)?;
             Ok(Some(record))
@@ -49,9 +49,9 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
 
     // Attempts to position the reader to the next record and return
     // true or false whether such a record is available or not.
-    pub async fn go_next(&mut self) -> Result<bool, ReadRecordError> {
+    pub fn go_next(&mut self) -> Result<bool, ReadRecordError> {
         loop {
-            let frame = self.frame_reader.read_frame().await;
+            let frame = self.frame_reader.read_frame();
             match frame {
                 Ok((frame_type, frame_payload)) => {
                     if frame_type.is_first_frame_of_record() {
@@ -83,8 +83,8 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
 }
 
 impl RecordReader<RollingReader> {
-    pub async fn into_writer(self) -> io::Result<RecordWriter<RollingWriter>> {
-        let frame_writer: FrameWriter<RollingWriter> = self.frame_reader.into_writer().await?;
+    pub fn into_writer(self) -> io::Result<RecordWriter<RollingWriter>> {
+        let frame_writer: FrameWriter<RollingWriter> = self.frame_reader.into_writer()?;
         Ok(RecordWriter::from(frame_writer))
     }
 }

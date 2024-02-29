@@ -15,48 +15,46 @@ fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Ve
     records
 }
 
-#[tokio::test]
-async fn test_multi_record_log_new() {
+#[test]
+fn test_multi_record_log_new() {
     let tempdir = tempfile::tempdir().unwrap();
-    MultiRecordLog::open(tempdir.path()).await.unwrap();
+    MultiRecordLog::open(tempdir.path()).unwrap();
 }
 
-#[tokio::test]
-async fn test_multi_record_log_create_queue() {
+#[test]
+fn test_multi_record_log_create_queue() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         assert!(&multi_record_log.queue_exists("queue"));
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_log_create_queue_after_reopen() {
+#[test]
+fn test_multi_record_log_create_queue_after_reopen() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
     }
     {
-        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert!(&multi_record_log.queue_exists("queue"));
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_log_simple() {
+#[test]
+fn test_multi_record_log_simple() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         multi_record_log
             .append_record("queue", None, &b"hello"[..])
-            .await
             .unwrap();
         multi_record_log
             .append_record("queue", None, &b"happy"[..])
-            .await
             .unwrap();
         assert_eq!(
             &read_all_records(&multi_record_log, "queue"),
@@ -66,19 +64,18 @@ async fn test_multi_record_log_simple() {
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_log_chained() {
+#[test]
+fn test_multi_record_log_chained() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         multi_record_log
             .append_record(
                 "queue",
                 None,
                 b"world".chain(&b" "[..]).chain(&b"order"[..]),
             )
-            .await
             .unwrap();
         multi_record_log
             .append_record(
@@ -86,7 +83,6 @@ async fn test_multi_record_log_chained() {
                 None,
                 b"nice"[..].chain(&b" "[..]).chain(&b"day"[..]),
             )
-            .await
             .unwrap();
         assert_eq!(
             &read_all_records(&multi_record_log, "queue"),
@@ -96,23 +92,21 @@ async fn test_multi_record_log_chained() {
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_log_reopen() {
+#[test]
+fn test_multi_record_log_reopen() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         multi_record_log
             .append_record("queue", None, &b"hello"[..])
-            .await
             .unwrap();
         multi_record_log
             .append_record("queue", None, &b"happy"[..])
-            .await
             .unwrap();
     }
     {
-        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             &read_all_records(&multi_record_log, "queue"),
             &[b"hello".as_slice(), b"happy".as_slice()]
@@ -121,32 +115,27 @@ async fn test_multi_record_log_reopen() {
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_log() {
+#[test]
+fn test_multi_record_log() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue1").await.unwrap();
-        multi_record_log.create_queue("queue2").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue1").unwrap();
+        multi_record_log.create_queue("queue2").unwrap();
         multi_record_log
             .append_record("queue1", None, &b"hello"[..])
-            .await
             .unwrap();
         multi_record_log
             .append_record("queue2", None, &b"maitre"[..])
-            .await
             .unwrap();
         multi_record_log
             .append_record("queue1", None, &b"happy"[..])
-            .await
             .unwrap();
         multi_record_log
             .append_record("queue1", None, &b"tax"[..])
-            .await
             .unwrap();
         multi_record_log
             .append_record("queue2", None, &b"corbeau"[..])
-            .await
             .unwrap();
         assert_eq!(
             &read_all_records(&multi_record_log, "queue1"),
@@ -159,10 +148,9 @@ async fn test_multi_record_log() {
         assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         multi_record_log
             .append_record("queue1", None, &b"bubu"[..])
-            .await
             .unwrap();
         assert_eq!(
             &read_all_records(&multi_record_log, "queue1"),
@@ -177,54 +165,51 @@ async fn test_multi_record_log() {
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_position_known_after_truncate() {
+#[test]
+fn test_multi_record_position_known_after_truncate() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"1"[..])
-                .await
                 .unwrap(),
             Some(0)
         );
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"2"[..])
-                .await
                 .unwrap(),
             Some(1)
         );
         assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.truncate("queue", 1).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.truncate("queue", 1).unwrap();
         assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"hello"[..])
-                .await
                 .unwrap(),
             Some(2)
         );
     }
 }
 
-#[tokio::test]
-async fn test_multi_insert_truncate() {
+#[test]
+fn test_multi_insert_truncate() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         assert_eq!(
             multi_record_log
                 .append_records(
@@ -232,7 +217,6 @@ async fn test_multi_insert_truncate() {
                     None,
                     [b"1", b"2", b"3", b"4"].into_iter().map(|r| r.as_slice())
                 )
-                .await
                 .unwrap(),
             Some(3)
         );
@@ -246,7 +230,7 @@ async fn test_multi_insert_truncate() {
             ]
         );
 
-        multi_record_log.truncate("queue", 0).await.unwrap();
+        multi_record_log.truncate("queue", 0).unwrap();
         assert_eq!(
             &multi_record_log
                 .range("queue", ..)
@@ -257,8 +241,8 @@ async fn test_multi_insert_truncate() {
         )
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.truncate("queue", 1).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.truncate("queue", 1).unwrap();
 
         assert_eq!(
             &multi_record_log
@@ -270,7 +254,7 @@ async fn test_multi_insert_truncate() {
         )
     }
     {
-        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             &multi_record_log
                 .range("queue", ..)
@@ -282,31 +266,28 @@ async fn test_multi_insert_truncate() {
     }
 }
 
-#[tokio::test]
-async fn test_truncate_range_correct_pos() {
+#[test]
+fn test_truncate_range_correct_pos() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"1"[..])
-                .await
                 .unwrap(),
             Some(0)
         );
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"2"[..])
-                .await
                 .unwrap(),
             Some(1)
         );
-        multi_record_log.truncate("queue", 1).await.unwrap();
+        multi_record_log.truncate("queue", 1).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"3"[..])
-                .await
                 .unwrap(),
             Some(2)
         );
@@ -337,44 +318,42 @@ async fn test_truncate_range_correct_pos() {
     }
 }
 
-#[tokio::test]
-async fn test_multi_record_size() {
+#[test]
+fn test_multi_record_size() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(multi_record_log.memory_usage(), 0);
 
-        multi_record_log.create_queue("queue").await.unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         let size_mem_create = multi_record_log.memory_usage();
         assert!(size_mem_create > 0);
 
         multi_record_log
             .append_record("queue", None, &b"hello"[..])
-            .await
             .unwrap();
         let size_mem_append = multi_record_log.memory_usage();
         assert!(size_mem_append > size_mem_create);
 
-        multi_record_log.truncate("queue", 0).await.unwrap();
+        multi_record_log.truncate("queue", 0).unwrap();
         let size_mem_truncate = multi_record_log.memory_usage();
         assert!(size_mem_truncate < size_mem_append);
     }
 }
 
-#[tokio::test]
-async fn test_open_corrupted() {
+#[test]
+fn test_open_corrupted() {
     // a single frame is 32k. We write more than 2 frames worth of data, corrupt one,
     // and verify we still read more than half the records successfully.
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
 
         // 8192 * 8bytes = 64k without overhead.
         for i in 0..8192 {
             multi_record_log
                 .append_record("queue", Some(i), format!("{i:08}").as_bytes())
-                .await
                 .unwrap();
         }
     }
@@ -395,7 +374,7 @@ async fn test_open_corrupted() {
             .unwrap();
     }
     {
-        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
 
         let mut count = 0;
         for (pos, content) in multi_record_log.range("queue", ..).unwrap() {
@@ -406,71 +385,68 @@ async fn test_open_corrupted() {
     }
 }
 
-#[tokio::test]
-async fn test_create_twice() {
+#[test]
+fn test_create_twice() {
     let tempdir = tempfile::tempdir().unwrap();
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue1").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue1").unwrap();
         multi_record_log
             .append_record("queue1", None, &b"hello"[..])
-            .await
             .unwrap();
-        multi_record_log.create_queue("queue1").await.unwrap_err();
+        multi_record_log.create_queue("queue1").unwrap_err();
         assert_eq!(multi_record_log.range("queue1", ..).unwrap().count(), 1);
     }
     {
-        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(multi_record_log.range("queue1", ..).unwrap().count(), 1);
     }
 }
 
-#[tokio::test]
-async fn test_last_position() {
+#[test]
+fn test_last_position() {
     let tempdir = tempfile::tempdir().unwrap();
 
-    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
     multi_record_log.last_position("queue1").unwrap_err();
 
-    multi_record_log.create_queue("queue1").await.unwrap();
+    multi_record_log.create_queue("queue1").unwrap();
     let last_pos = multi_record_log.last_position("queue1").unwrap();
     assert!(last_pos.is_none());
 
     multi_record_log
         .append_record("queue1", None, &b"hello"[..])
-        .await
         .unwrap();
 
     let last_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
     assert_eq!(last_pos, 0);
 
-    multi_record_log.truncate("queue1", 0).await.unwrap();
+    multi_record_log.truncate("queue1", 0).unwrap();
 
     let last_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
     assert_eq!(last_pos, 0);
 }
 
-#[tokio::test]
-async fn test_last_record() {
+#[test]
+fn test_last_record() {
     let tempdir = tempfile::tempdir().unwrap();
 
-    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
     multi_record_log.last_position("queue1").unwrap_err();
 
-    multi_record_log.create_queue("queue1").await.unwrap();
+    multi_record_log.create_queue("queue1").unwrap();
     let last_record = multi_record_log.last_position("queue1").unwrap();
     assert!(last_record.is_none());
 
     multi_record_log
         .append_record("queue1", None, &b"hello"[..])
-        .await
         .unwrap();
 
     let (last_position, last_record) = multi_record_log.last_record("queue1").unwrap().unwrap();
     assert_eq!(last_position, 0);
     assert_eq!(last_record, &b"hello"[..]);
 
-    multi_record_log.truncate("queue1", 0).await.unwrap();
+    multi_record_log.truncate("queue1", 0).unwrap();
 
     let last_record = multi_record_log.last_record("queue1").unwrap();
     assert!(last_record.is_none());

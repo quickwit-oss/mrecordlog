@@ -6,7 +6,6 @@ use proptest::prelude::prop;
 use proptest::prop_oneof;
 use proptest::strategy::{Just, Strategy};
 use tempfile::TempDir;
-use tokio::runtime::Runtime;
 
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::{MultiRecordLog, Serializable};
@@ -19,11 +18,11 @@ struct PropTestEnv {
 }
 
 impl PropTestEnv {
-    pub async fn new(block_size: usize) -> Self {
+    pub fn new(block_size: usize) -> Self {
         let tempdir = tempfile::tempdir().unwrap();
-        let mut record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        record_log.create_queue("q1").await.unwrap();
-        record_log.create_queue("q2").await.unwrap();
+        let mut record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        record_log.create_queue("q1").unwrap();
+        record_log.create_queue("q2").unwrap();
         let mut state = HashMap::default();
         state.insert("q1", (0..0, 0));
         state.insert("q2", (0..0, 0));
@@ -35,32 +34,32 @@ impl PropTestEnv {
         }
     }
 
-    pub async fn apply(&mut self, op: Operation) {
+    pub fn apply(&mut self, op: Operation) {
         match op {
             Operation::Reopen => {
-                self.reload().await;
+                self.reload();
             }
             Operation::MultiAppend {
                 queue,
                 count,
                 skip_one_pos,
             } => {
-                self.multi_append(queue, count, skip_one_pos).await;
+                self.multi_append(queue, count, skip_one_pos);
             }
             Operation::RedundantAppend {
                 queue,
                 skip_one_pos,
             } => {
-                self.double_append(queue, skip_one_pos).await;
+                self.double_append(queue, skip_one_pos);
             }
             Operation::Truncate { queue, pos } => {
-                self.truncate(queue, pos).await;
+                self.truncate(queue, pos);
             }
         }
     }
 
-    pub async fn reload(&mut self) {
-        self.record_log = MultiRecordLog::open(self.tempdir.path()).await.unwrap();
+    pub fn reload(&mut self) {
+        self.record_log = MultiRecordLog::open(self.tempdir.path()).unwrap();
         for (queue, (_range, count)) in &self.state {
             assert_eq!(
                 self.record_log.range(queue, ..).unwrap().count() as u64,
@@ -69,21 +68,19 @@ impl PropTestEnv {
         }
     }
 
-    pub async fn double_append(&mut self, queue: &str, skip_one_pos: bool) {
+    pub fn double_append(&mut self, queue: &str, skip_one_pos: bool) {
         let state = self.state.get_mut(queue).unwrap();
 
         let new_pos = state.0.end + skip_one_pos as u64;
         let res = self
             .record_log
             .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
-            .await
             .unwrap()
             .unwrap();
 
         assert!(self
             .record_log
             .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
-            .await
             .unwrap()
             .is_none());
 
@@ -92,7 +89,7 @@ impl PropTestEnv {
         state.1 += 1;
     }
 
-    pub async fn multi_append(&mut self, queue: &str, count: u64, skip_one_pos: bool) {
+    pub fn multi_append(&mut self, queue: &str, count: u64, skip_one_pos: bool) {
         let state = self.state.get_mut(queue).unwrap();
 
         let new_pos = state.0.end + skip_one_pos as u64;
@@ -103,7 +100,6 @@ impl PropTestEnv {
                 Some(new_pos),
                 std::iter::repeat(&self.block_to_write[..]).take(count as usize),
             )
-            .await
             .unwrap();
 
         if count != 0 {
@@ -114,19 +110,19 @@ impl PropTestEnv {
         }
     }
 
-    pub async fn truncate(&mut self, queue: &str, pos: u64) {
+    pub fn truncate(&mut self, queue: &str, pos: u64) {
         let state = self.state.get_mut(queue).unwrap();
         if state.0.contains(&pos) {
             state.0.start = pos + 1;
-            state.1 -= self.record_log.truncate(queue, pos).await.unwrap() as u64;
+            state.1 -= self.record_log.truncate(queue, pos).unwrap() as u64;
         } else if pos >= state.0.end {
             // advance the queue to the position.
             state.0 = (pos + 1)..(pos + 1);
             state.1 = 0;
-            self.record_log.truncate(queue, pos).await.unwrap();
+            self.record_log.truncate(queue, pos).unwrap();
         } else {
             // should be a no-op
-            self.record_log.truncate(queue, pos).await.unwrap();
+            self.record_log.truncate(queue, pos).unwrap();
         }
     }
 }
@@ -206,15 +202,13 @@ fn test_scenario_end_on_full_file() {
         },
         Reopen,
     ];
-    Runtime::new().unwrap().block_on(async {
-        // this value is crafted to make so exactly two full files are stored,
-        // but no 3rd is created: if anything about the format change, this test
-        // will become useless (but won't fail spuriously).
-        let mut env = PropTestEnv::new(52381).await;
-        for op in ops {
-            env.apply(op).await;
-        }
-    });
+    // this value is crafted to make so exactly two full files are stored,
+    // but no 3rd is created: if anything about the format change, this test
+    // will become useless (but won't fail spuriously).
+    let mut env = PropTestEnv::new(52381);
+    for op in ops {
+        env.apply(op);
+    }
 }
 
 #[test]
@@ -244,12 +238,10 @@ fn test_scenario_big_records() {
         },
         Reopen,
     ];
-    Runtime::new().unwrap().block_on(async {
-        let mut env = PropTestEnv::new(1 << 26).await;
-        for op in ops {
-            env.apply(op).await;
-        }
-    });
+    let mut env = PropTestEnv::new(1 << 26);
+    for op in ops {
+        env.apply(op);
+    }
 }
 
 fn queue_name_len() -> impl Strategy<Value = usize> {
@@ -281,12 +273,10 @@ fn queue_name_strategy() -> impl Strategy<Value = String> {
 proptest::proptest! {
     #[test]
     fn test_proptest_multirecord((ops, block_size) in (operations_strategy(), 0usize..65535)) {
-        Runtime::new().unwrap().block_on(async {
-            let mut env = PropTestEnv::new(block_size).await;
-            for op in ops {
-                env.apply(op).await;
-            }
-        });
+        let mut env = PropTestEnv::new(block_size);
+       for op in ops {
+            env.apply(op);
+       }
     }
 
     #[test]
@@ -341,34 +331,32 @@ enum Operation {
     },
 }
 
-#[tokio::test]
-async fn test_multi_record() {
+#[test]
+fn test_multi_record() {
     let tempdir = tempfile::tempdir().unwrap();
     eprintln!("dir={tempdir:?}");
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.create_queue("queue").await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"1"[..])
-                .await
                 .unwrap(),
             Some(0)
         );
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"22"[..])
-                .await
                 .unwrap(),
             Some(1)
         );
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-        multi_record_log.truncate("queue", 0).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.truncate("queue", 0).unwrap();
         assert_eq!(
             multi_record_log
                 .range("queue", ..)
@@ -378,17 +366,16 @@ async fn test_multi_record() {
         );
     }
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"hello"[..])
-                .await
                 .unwrap(),
             Some(2)
         );
     }
     {
-        let multi_record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
+        let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         assert_eq!(
             multi_record_log
                 .range("queue", ..)
@@ -403,20 +390,18 @@ async fn test_multi_record() {
 }
 
 /// Unit tests reproducing bugs found with proptest in the past.
-#[tokio::test]
-async fn test_proptest_multirecord_reproduce_1() {
+#[test]
+fn test_proptest_multirecord_reproduce_1() {
     let block_size = 32_731;
-    let mut env = PropTestEnv::new(block_size).await;
+    let mut env = PropTestEnv::new(block_size);
     env.apply(Operation::MultiAppend {
         queue: "q1",
         count: 4,
         skip_one_pos: false,
-    })
-    .await;
+    });
     env.apply(Operation::Truncate {
         queue: "q1",
         pos: 3,
-    })
-    .await;
-    env.apply(Operation::Reopen {}).await;
+    });
+    env.apply(Operation::Reopen {});
 }

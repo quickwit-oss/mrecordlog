@@ -67,7 +67,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue, MissingQueue> {
+    pub(crate) fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue, MissingQueue> {
         // We do not rely on `entry` in order to avoid
         // the allocation.
         self.queues
@@ -75,7 +75,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub async fn append_record(
+    pub fn append_record(
         &mut self,
         queue: &str,
         file_number: &FileNumber,
@@ -83,8 +83,7 @@ impl MemQueues {
         payload: &[u8],
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)
-            .await?;
+            .append_record(file_number, target_position, payload)?;
         Ok(())
     }
 
@@ -149,9 +148,9 @@ impl MemQueues {
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub async fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
+    pub fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            Some(queue.truncate(position).await)
+            Some(queue.truncate(position))
         } else {
             None
         }

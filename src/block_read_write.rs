@@ -1,10 +1,7 @@
 use std::io;
 
-use async_trait::async_trait;
-
 pub const BLOCK_NUM_BYTES: usize = 32_768;
 
-#[async_trait]
 pub trait BlockRead {
     /// Loads the next block.
     /// If `Ok(true)` is returned, the new block is available through
@@ -12,7 +9,7 @@ pub trait BlockRead {
     ///
     /// If `Ok(false)` is returned, the end of the `BlockReader`
     /// has been reached and the content of `block()` could be anything.
-    async fn next_block(&mut self) -> io::Result<bool>;
+    fn next_block(&mut self) -> io::Result<bool>;
 
     /// A `BlockReader` is always position on a specific block.
     ///
@@ -25,12 +22,11 @@ pub trait BlockRead {
     fn block(&self) -> &[u8; BLOCK_NUM_BYTES];
 }
 
-#[async_trait]
 pub trait BlockWrite {
     /// Must panic if buf is larger than `num_bytes_remaining_in_block`.
-    async fn write(&mut self, buf: &[u8]) -> io::Result<()>;
+    fn write(&mut self, buf: &[u8]) -> io::Result<()>;
     /// The semantics of flush may depend on the implementation.
-    async fn flush(&mut self) -> io::Result<()>;
+    fn flush(&mut self) -> io::Result<()>;
     /// Number of bytes that can be added in the block.
     fn num_bytes_remaining_in_block(&self) -> usize;
 }
@@ -50,9 +46,8 @@ impl<'a> From<&'a [u8]> for ArrayReader<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> BlockRead for ArrayReader<'a> {
-    async fn next_block(&mut self) -> io::Result<bool> {
+    fn next_block(&mut self) -> io::Result<bool> {
         if self.data.len() < BLOCK_NUM_BYTES {
             return Ok(false);
         }
@@ -83,9 +78,8 @@ impl From<VecBlockWriter> for Vec<u8> {
     }
 }
 
-#[async_trait]
 impl BlockWrite for VecBlockWriter {
-    async fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.cursor + buf.len() > self.buffer.len() {
             let new_len = ceil_to_block((self.cursor + buf.len()) * 2 + 1);
@@ -96,7 +90,7 @@ impl BlockWrite for VecBlockWriter {
         Ok(())
     }
 
-    async fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 
