@@ -81,13 +81,8 @@ impl MemQueues {
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
-        let queue = self.get_queue_mut(queue)?;
-        let next_position = queue.next_position();
-        if target_position < next_position {
-            return Err(AppendError::Past);
-        }
-        queue.append_record(file_number, target_position, payload);
-        Ok(())
+        self.get_queue_mut(queue)?
+            .append_record(file_number, target_position, payload)
     }
 
     pub fn contains_queue(&self, queue: &str) -> bool {

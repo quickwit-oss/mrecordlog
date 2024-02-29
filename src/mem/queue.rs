@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds};
 
+use crate::error::AppendError;
 use crate::rolling::FileNumber;
 use crate::Record;
 
@@ -143,7 +144,12 @@ impl MemQueue {
         file_number: &FileNumber,
         target_position: u64,
         payload: &[u8],
-    ) {
+    ) -> Result<(), AppendError> {
+        let next_position = self.next_position();
+        if target_position < next_position {
+            return Err(AppendError::Past);
+        }
+
         if self.start_position == 0u64 && self.record_metas.is_empty() {
             self.start_position = target_position;
         }
@@ -165,6 +171,7 @@ impl MemQueue {
         };
         self.record_metas.push(record_meta);
         self.concatenated_records.extend(payload);
+        Ok(())
     }
 
     /// Get the position of the record.

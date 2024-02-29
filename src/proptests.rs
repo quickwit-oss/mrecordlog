@@ -274,9 +274,9 @@ proptest::proptest! {
     #[test]
     fn test_proptest_multirecord((ops, block_size) in (operations_strategy(), 0usize..65535)) {
         let mut env = PropTestEnv::new(block_size);
-       for op in ops {
+        for op in ops {
             env.apply(op);
-       }
+        }
     }
 
     #[test]

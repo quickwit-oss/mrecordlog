@@ -243,14 +243,11 @@ impl MultiRecordLog {
         self.sync_on_policy()?;
 
         let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
-        let mut next_position = mem_queue.next_position();
         let mut max_position = position;
         for record in records {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
-            assert!(position >= next_position);
-            next_position = position + 1;
-            mem_queue.append_record(&file_number, position, payload);
+            mem_queue.append_record(&file_number, position, payload)?;
             max_position = position;
         }
 
