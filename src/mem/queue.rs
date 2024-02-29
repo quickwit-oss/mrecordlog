@@ -176,7 +176,7 @@ impl MemQueue {
             .binary_search_by_key(&position, |record| record.position)
     }
 
-    pub fn range<R>(&self, range: R) -> impl Iterator<Item = (u64, Cow<[u8]>)> + '_
+    pub fn range<R>(&self, range: R) -> impl Iterator<Item = Record> + '_
     where R: RangeBounds<u64> + 'static {
         let start_idx: usize = match range.start_bound() {
             Bound::Included(&start_from) => {
@@ -199,19 +199,14 @@ impl MemQueue {
                 let record = &self.record_metas[idx];
                 let position = record.position;
                 let start_offset = record.start_offset;
-                if let Some(next_record_meta) = self.record_metas.get(idx + 1) {
+                let payload = if let Some(next_record_meta) = self.record_metas.get(idx + 1) {
                     let end_offset = next_record_meta.start_offset;
-                    (
-                        position,
-                        self.concatenated_records
-                            .get_range(start_offset..end_offset),
-                    )
+                    self.concatenated_records
+                        .get_range(start_offset..end_offset)
                 } else {
-                    (
-                        position,
-                        self.concatenated_records.get_range(start_offset..),
-                    )
-                }
+                    self.concatenated_records.get_range(start_offset..)
+                };
+                Record { position, payload }
             })
     }
 

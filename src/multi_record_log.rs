@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::io;
 use std::ops::RangeBounds;
 use std::path::Path;
@@ -318,7 +317,7 @@ impl MultiRecordLog {
         if event_enabled!(Level::DEBUG) {
             for queue in self.list_queues() {
                 let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
-                let first_pos = queue.range(..).next().map(|(pos, _)| pos);
+                let first_pos = queue.range(..).next().map(|record| record.position);
                 let last_pos = queue.last_position();
                 debug!(first_pos=?first_pos, last_pos=?last_pos, "queue positions after gc");
             }
@@ -330,7 +329,7 @@ impl MultiRecordLog {
         &self,
         queue: &str,
         range: R,
-    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
+    ) -> Result<impl Iterator<Item = Record>, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {

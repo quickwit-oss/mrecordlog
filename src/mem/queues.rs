@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::RangeBounds;
 
@@ -48,7 +47,7 @@ impl MemQueues {
         &self,
         queue: &str,
         range: R,
-    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
+    ) -> Result<impl Iterator<Item = Record> + '_, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {

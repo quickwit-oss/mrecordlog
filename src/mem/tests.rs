@@ -1,8 +1,7 @@
-use std::borrow::Cow;
-
 use super::*;
 use crate::error::{AlreadyExists, AppendError};
 use crate::rolling::FileNumber;
+use crate::Record;
 
 #[test]
 fn test_mem_queues_already_exists() {
@@ -46,20 +45,20 @@ fn test_mem_queues() {
             .is_ok());
         assert_eq!(
             mem_queues.range("droopy", 0..).unwrap().next(),
-            Some((0, Cow::Borrowed(&b"hello"[..])))
+            Some(Record::new(0, b"hello"))
         );
-        let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 1..).unwrap().collect();
+        let droopy: Vec<Record> = mem_queues.range("droopy", 1..).unwrap().collect();
         assert_eq!(
             &droopy,
             &[
-                (1, Cow::Borrowed(&b"happy"[..])),
-                (2, Cow::Borrowed(&b"tax"[..])),
-                (3, Cow::Borrowed(&b"payer"[..]))
+                Record::new(1, b"happy"),
+                Record::new(2, b"tax"),
+                Record::new(3, b"payer"),
             ],
         );
     }
-    let fable: Vec<(u64, Cow<[u8]>)> = mem_queues.range("fable", 1..).unwrap().collect();
-    assert_eq!(&fable, &[(1, Cow::Borrowed(&b"corbeau"[..]))]);
+    let fable: Vec<Record> = mem_queues.range("fable", 1..).unwrap().collect();
+    assert_eq!(&fable, &[Record::new(1, b"corbeau")]);
 }
 
 #[test]
@@ -87,13 +86,10 @@ fn test_mem_queues_truncate() {
             .unwrap();
     }
     mem_queues.truncate("droopy", 3);
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
+    let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
-        &[
-            (4, Cow::Borrowed(&b"!"[..])),
-            (5, Cow::Borrowed(&b"payer"[..])),
-        ]
+        &[Record::new(4, b"!"), Record::new(5, b"payer"),]
     );
 }
 
@@ -113,33 +109,27 @@ fn test_mem_queues_skip_advance() {
     assert!(mem_queues
         .append_record("droopy", &1.into(), 1, b"happy")
         .is_err());
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
+    let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
         &[
-            (0, Cow::Borrowed(&b"hello"[..])),
-            (2, Cow::Borrowed(&b"happy"[..])),
-            (3, Cow::Borrowed(&b"happy"[..])),
+            Record::new(0, b"hello"),
+            Record::new(2, b"happy"),
+            Record::new(3, b"happy"),
         ]
     );
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 1..).unwrap().collect();
+    let droopy: Vec<Record> = mem_queues.range("droopy", 1..).unwrap().collect();
     assert_eq!(
         &droopy[..],
-        &[
-            (2, Cow::Borrowed(&b"happy"[..])),
-            (3, Cow::Borrowed(&b"happy"[..])),
-        ]
+        &[Record::new(2, b"happy"), Record::new(3, b"happy"),]
     );
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 2..).unwrap().collect();
+    let droopy: Vec<Record> = mem_queues.range("droopy", 2..).unwrap().collect();
     assert_eq!(
         &droopy[..],
-        &[
-            (2, Cow::Borrowed(&b"happy"[..])),
-            (3, Cow::Borrowed(&b"happy"[..])),
-        ]
+        &[Record::new(2, b"happy"), Record::new(3, b"happy"),]
     );
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 3..).unwrap().collect();
-    assert_eq!(&droopy[..], &[(3, Cow::Borrowed(&b"happy"[..])),]);
+    let droopy: Vec<Record> = mem_queues.range("droopy", 3..).unwrap().collect();
+    assert_eq!(&droopy[..], &[Record::new(3, b"happy")]);
 }
 
 #[test]
@@ -171,8 +161,8 @@ fn test_mem_queues_append_idempotence() {
             .unwrap_err(),
         AppendError::Past
     ));
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
-    assert_eq!(&droopy, &[(0, Cow::Borrowed(&b"hello"[..]))]);
+    let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
+    assert_eq!(&droopy, &[Record::new(0, b"hello")]);
 }
 
 #[test]
@@ -182,8 +172,8 @@ fn test_mem_queues_non_zero_first_el() {
     assert!(mem_queues
         .append_record("droopy", &1.into(), 5, b"hello")
         .is_ok());
-    let droopy: Vec<(u64, Cow<[u8]>)> = mem_queues.range("droopy", 0..).unwrap().collect();
-    assert_eq!(droopy, &[(5, Cow::Borrowed(&b"hello"[..]))]);
+    let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
+    assert_eq!(droopy, &[Record::new(5, b"hello")]);
 }
 
 #[test]

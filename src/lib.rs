@@ -13,9 +13,19 @@ mod rolling;
 
 pub use multi_record_log::{MultiRecordLog, SyncPolicy};
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Record<'a> {
     pub position: u64,
     pub payload: Cow<'a, [u8]>,
+}
+
+impl<'a> Record<'a> {
+    pub fn new(position: u64, payload: &'a [u8]) -> Self {
+        Record {
+            position,
+            payload: Cow::Borrowed(payload),
+        }
+    }
 }
 
 #[cfg(test)]

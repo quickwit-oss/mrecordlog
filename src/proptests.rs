@@ -8,7 +8,7 @@ use proptest::strategy::{Just, Strategy};
 use tempfile::TempDir;
 
 use crate::record::{MultiPlexedRecord, MultiRecord};
-use crate::{MultiRecordLog, Serializable};
+use crate::{MultiRecordLog, Record, Serializable};
 
 struct PropTestEnv {
     tempdir: TempDir,
@@ -362,7 +362,10 @@ fn test_multi_record() {
                 .range("queue", ..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            [(1, Cow::Borrowed(&b"22"[..]))],
+            [Record {
+                position: 1,
+                payload: Cow::Borrowed(&b"22"[..])
+            }],
         );
     }
     {
@@ -381,10 +384,7 @@ fn test_multi_record() {
                 .range("queue", ..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            [
-                (1, Cow::Borrowed(&b"22"[..])),
-                (2, Cow::Borrowed(&b"hello"[..])),
-            ]
+            [Record::new(1, b"22"), Record::new(2, b"hello"),]
         );
     }
 }

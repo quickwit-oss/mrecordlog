@@ -7,8 +7,8 @@ use crate::{MultiRecordLog, Record};
 fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Vec<Cow<'a, [u8]>> {
     let mut records = Vec::new();
     let mut next_pos = u64::default();
-    for (pos, payload) in multi_record_log.range(queue, next_pos..).unwrap() {
-        assert_eq!(pos, next_pos);
+    for Record { position, payload } in multi_record_log.range(queue, next_pos..).unwrap() {
+        assert_eq!(position, next_pos);
         records.push(payload);
         next_pos += 1;
     }
@@ -235,7 +235,7 @@ fn test_multi_insert_truncate() {
             &multi_record_log
                 .range("queue", ..)
                 .unwrap()
-                .map(|(_, payload)| payload)
+                .map(|record| record.payload)
                 .collect::<Vec<_>>(),
             &[b"2".as_slice(), b"3".as_slice(), b"4".as_slice()]
         )
@@ -248,7 +248,7 @@ fn test_multi_insert_truncate() {
             &multi_record_log
                 .range("queue", ..)
                 .unwrap()
-                .map(|(_, payload)| payload)
+                .map(|record| record.payload)
                 .collect::<Vec<_>>(),
             &[b"3".as_slice(), b"4".as_slice()]
         )
@@ -259,7 +259,7 @@ fn test_multi_insert_truncate() {
             &multi_record_log
                 .range("queue", ..)
                 .unwrap()
-                .map(|(_, payload)| payload)
+                .map(|record| record.payload)
                 .collect::<Vec<_>>(),
             &[b"3".as_slice(), b"4".as_slice()]
         )
@@ -296,7 +296,7 @@ fn test_truncate_range_correct_pos() {
                 .range("queue", ..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            &[(2, Cow::Borrowed(&b"3"[..]))]
+            &[Record::new(2u64, b"3")]
         );
 
         assert_eq!(
@@ -304,7 +304,7 @@ fn test_truncate_range_correct_pos() {
                 .range("queue", 2..)
                 .unwrap()
                 .collect::<Vec<_>>(),
-            &[(2, Cow::Borrowed(&b"3"[..]))]
+            &[Record::new(2, b"3")]
         );
 
         use std::ops::Bound;
@@ -313,7 +313,7 @@ fn test_truncate_range_correct_pos() {
                 .range("queue", (Bound::Excluded(1), Bound::Unbounded))
                 .unwrap()
                 .collect::<Vec<_>>(),
-            &[(2, Cow::Borrowed(&b"3"[..]))]
+            &[Record::new(2, b"3")]
         );
     }
 }
@@ -377,8 +377,8 @@ fn test_open_corrupted() {
         let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
 
         let mut count = 0;
-        for (pos, content) in multi_record_log.range("queue", ..).unwrap() {
-            assert_eq!(content, format!("{pos:08}").as_bytes());
+        for Record { position, payload } in multi_record_log.range("queue", ..).unwrap() {
+            assert_eq!(payload, format!("{position:08}").as_bytes());
             count += 1;
         }
         assert!(count > 4096);
