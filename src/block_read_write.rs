@@ -26,7 +26,7 @@ pub trait BlockWrite {
     /// Must panic if buf is larger than `num_bytes_remaining_in_block`.
     fn write(&mut self, buf: &[u8]) -> io::Result<()>;
     /// The semantics of flush may depend on the implementation.
-    fn flush(&mut self) -> io::Result<()>;
+    fn flush(&mut self, fsync: bool) -> io::Result<()>;
     /// Number of bytes that can be added in the block.
     fn num_bytes_remaining_in_block(&self) -> usize;
 }
@@ -90,7 +90,7 @@ impl BlockWrite for VecBlockWriter {
         Ok(())
     }
 
-    fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self, _fsync: bool) -> io::Result<()> {
         Ok(())
     }
 

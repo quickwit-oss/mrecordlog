@@ -342,7 +342,7 @@ impl MultiRecordLog {
     }
 
     pub fn sync(&mut self) -> io::Result<()> {
-        self.record_log_writer.flush()
+        self.record_log_writer.flush(false)
     }
 
     /// Returns the position of the last record appended to the queue.
