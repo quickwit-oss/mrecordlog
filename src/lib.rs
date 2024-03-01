@@ -11,7 +11,7 @@ mod record;
 mod recordlog;
 mod rolling;
 
-pub use multi_record_log::{MultiRecordLog, SyncPolicy};
+pub use multi_record_log::{MultiRecordLog, PersistAction, PersistPolicy};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Record<'a> {
