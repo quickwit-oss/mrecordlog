@@ -1,4 +1,4 @@
-use tokio::io;
+use std::io;
 
 use crate::block_read_write::VecBlockWriter;
 use crate::frame::{FrameType, FrameWriter};
@@ -44,7 +44,7 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
     /// For instance, the data could be stale in a library level buffer,
     /// by a writer level buffer, or an application buffer,
     /// or could not be flushed to disk yet by the OS.
-    pub async fn write_record(&mut self, record: impl Serializable<'_>) -> io::Result<()> {
+    pub fn write_record<'a>(&mut self, record: impl Serializable<'a>) -> io::Result<()> {
         let mut is_first_frame = true;
         self.buffer.clear();
         record.serialize(&mut self.buffer);
@@ -58,9 +58,7 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
             payload = &payload[frame_payload_len..];
             let is_last_frame = payload.is_empty();
             let frame_type = frame_type(is_first_frame, is_last_frame);
-            self.frame_writer
-                .write_frame(frame_type, frame_payload)
-                .await?;
+            self.frame_writer.write_frame(frame_type, frame_payload)?;
             is_first_frame = false;
             if is_last_frame {
                 break;
@@ -70,10 +68,9 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
     }
 
     /// Flushes and sync the data to disk.
-    pub async fn flush(&mut self) -> io::Result<()> {
+    pub fn flush(&mut self) -> io::Result<()> {
         // Empty the application buffer.
-        self.frame_writer.flush().await?;
-        Ok(())
+        self.frame_writer.flush()
     }
 
     pub fn get_underlying_wrt(&self) -> &W {

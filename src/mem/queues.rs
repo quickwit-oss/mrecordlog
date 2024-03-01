@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::RangeBounds;
 
@@ -7,12 +6,12 @@ use tracing::{info, warn};
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
 use crate::mem::MemQueue;
 use crate::rolling::FileNumber;
+use crate::Record;
 
 #[derive(Default)]
-pub struct MemQueues {
+pub(crate) struct MemQueues {
     queues: HashMap<String, MemQueue>,
 }
-
 impl MemQueues {
     /// The file number argument is here unused. Its point is just to make sure we
     /// flushed the file before updating the in memory queue.
@@ -48,7 +47,7 @@ impl MemQueues {
         &self,
         queue: &str,
         range: R,
-    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
+    ) -> Result<impl Iterator<Item = Record> + '_, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {
@@ -67,7 +66,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue, MissingQueue> {
+    pub(crate) fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue, MissingQueue> {
         // We do not rely on `entry` in order to avoid
         // the allocation.
         self.queues
@@ -75,7 +74,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub async fn append_record(
+    pub fn append_record(
         &mut self,
         queue: &str,
         file_number: &FileNumber,
@@ -84,8 +83,6 @@ impl MemQueues {
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
             .append_record(file_number, target_position, payload)
-            .await?;
-        Ok(())
     }
 
     pub fn contains_queue(&self, queue: &str) -> bool {
@@ -136,7 +133,7 @@ impl MemQueues {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+    pub fn last_record(&self, queue: &str) -> Result<Option<Record>, MissingQueue> {
         Ok(self.get_queue(queue)?.last_record())
     }
 
@@ -149,9 +146,9 @@ impl MemQueues {
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub async fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
+    pub fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            Some(queue.truncate(position).await)
+            Some(queue.truncate(position))
         } else {
             None
         }

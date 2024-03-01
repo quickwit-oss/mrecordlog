@@ -1,17 +1,16 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use mrecordlog::MultiRecordLog;
 
-async fn bench_single_size(size: usize, count: usize, loop_count: usize) {
+fn bench_single_size(size: usize, count: usize, loop_count: usize) {
     let tempdir = tempfile::tempdir().unwrap();
-    let mut record_log = MultiRecordLog::open(tempdir.path()).await.unwrap();
-    record_log.create_queue("q1").await.unwrap();
+    let mut record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+    record_log.create_queue("q1").unwrap();
 
     let record = vec![0; size];
 
     for _ in 0..loop_count {
         record_log
             .append_records("q1", None, std::iter::repeat(&record[..]).take(count))
-            .await
             .unwrap();
     }
 }
@@ -38,12 +37,7 @@ fn insert_throughput(c: &mut Criterion) {
                 ),
                 &(record_size, record_count, loop_count),
                 |b, (record_size, record_count, loop_count)| {
-                    let runtime = tokio::runtime::Builder::new_multi_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    b.to_async(runtime)
-                        .iter(|| bench_single_size(*record_size, *record_count, *loop_count));
+                    b.iter(|| bench_single_size(*record_size, *record_count, *loop_count));
                 },
             );
         }

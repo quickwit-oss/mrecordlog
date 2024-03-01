@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::io;
 use std::ops::RangeBounds;
 use std::path::Path;
@@ -10,11 +9,11 @@ use tracing::{debug, event_enabled, info, warn, Level};
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
-use crate::mem;
 use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
+use crate::{mem, Record};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -76,23 +75,23 @@ impl From<SyncPolicy> for SyncState {
 
 impl MultiRecordLog {
     /// Open the multi record log, syncing after each operation.
-    pub async fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
-        Self::open_with_prefs(directory_path, SyncPolicy::OnAppend).await
+    pub fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
+        Self::open_with_prefs(directory_path, SyncPolicy::OnAppend)
     }
 
     /// Open the multi record log, syncing following the provided policy.
-    pub async fn open_with_prefs(
+    pub fn open_with_prefs(
         directory_path: &Path,
         sync_policy: SyncPolicy,
     ) -> Result<Self, ReadRecordError> {
         // io errors are non-recoverable
-        let rolling_reader = crate::rolling::RollingReader::open(directory_path).await?;
+        let rolling_reader = crate::rolling::RollingReader::open(directory_path)?;
         let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
         debug!("loading wal");
         loop {
             let file_number = record_reader.read().current_file().clone();
-            let Ok(record) = record_reader.read_record().await else {
+            let Ok(record) = record_reader.read_record() else {
                 warn!("Detected corrupted record: some data may have been lost");
                 continue;
             };
@@ -117,12 +116,11 @@ impl MultiRecordLog {
                             // to insert again?
                             in_mem_queues
                                 .append_record(queue, &file_number, position, payload)
-                                .await
                                 .map_err(|_| ReadRecordError::Corruption)?;
                         }
                     }
                     MultiPlexedRecord::Truncate { position, queue } => {
-                        in_mem_queues.truncate(queue, position).await;
+                        in_mem_queues.truncate(queue, position);
                     }
                     MultiPlexedRecord::RecordPosition { queue, position } => {
                         in_mem_queues.ack_position(queue, position);
@@ -138,14 +136,14 @@ impl MultiRecordLog {
             }
         }
         // io errors are non-recoverable
-        let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer().await?;
+        let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer()?;
         let mut multi_record_log = MultiRecordLog {
             record_log_writer,
             in_mem_queues,
             next_sync: sync_policy.into(),
             multi_record_spare_buffer: Vec::new(),
         };
-        multi_record_log.run_gc_if_necessary().await?;
+        multi_record_log.run_gc_if_necessary()?;
         Ok(multi_record_log)
     }
 
@@ -158,26 +156,26 @@ impl MultiRecordLog {
     /// Creates a new queue.
     ///
     /// Returns an error if the queue already exists.
-    pub async fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
+    pub fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
         info!(queue = queue, "create queue");
         if self.queue_exists(queue) {
             return Err(CreateQueueError::AlreadyExists);
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
-        self.record_log_writer.write_record(record).await?;
-        self.sync().await?;
+        self.record_log_writer.write_record(record)?;
+        self.sync()?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
 
-    pub async fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError> {
+    pub fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError> {
         info!(queue = queue, "delete queue");
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
-        self.record_log_writer.write_record(record).await?;
+        self.record_log_writer.write_record(record)?;
         self.in_mem_queues.delete_queue(queue)?;
-        self.run_gc_if_necessary().await?;
-        self.sync().await?;
+        self.run_gc_if_necessary()?;
+        self.sync()?;
         Ok(())
     }
 
@@ -194,14 +192,13 @@ impl MultiRecordLog {
     /// The local_position argument can optionally be passed to enforce idempotence.
     /// TODO if an io Error is encounterred, the in mem queue and the record log will
     /// be in an inconsistent state.
-    pub async fn append_record(
+    pub fn append_record(
         &mut self,
         queue: &str,
         position_opt: Option<u64>,
         payload: impl Buf,
     ) -> Result<Option<u64>, AppendError> {
         self.append_records(queue, position_opt, std::iter::once(payload))
-            .await
     }
 
     /// Appends multiple records to the log.
@@ -210,7 +207,7 @@ impl MultiRecordLog {
     /// However this function succeeding does not necessarily means records where stored, be sure
     /// to call [`Self::sync`] to make sure changes are persisted if you don't use
     /// [`SyncPolicy::OnAppend`] (which is the default).
-    pub async fn append_records<'a, T: Iterator<Item = impl Buf>>(
+    pub fn append_records<T: Iterator<Item = impl Buf>>(
         &mut self,
         queue: &str,
         position_opt: Option<u64>,
@@ -242,16 +239,15 @@ impl MultiRecordLog {
             queue,
             records,
         };
-        self.record_log_writer.write_record(record).await?;
-        self.sync_on_policy().await?;
+        self.record_log_writer.write_record(record)?;
+        self.sync_on_policy()?;
 
+        let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
         let mut max_position = position;
         for record in records {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
-            self.in_mem_queues
-                .append_record(queue, &file_number, position, payload)
-                .await?;
+            mem_queue.append_record(&file_number, position, payload)?;
             max_position = position;
         }
 
@@ -259,7 +255,7 @@ impl MultiRecordLog {
         Ok(Some(max_position))
     }
 
-    async fn record_empty_queues_position(&mut self) -> io::Result<()> {
+    fn record_empty_queues_position(&mut self) -> io::Result<()> {
         let mut has_empty_queues = false;
         for (queue_id, queue) in self.in_mem_queues.empty_queues() {
             let next_position = queue.next_position();
@@ -267,13 +263,13 @@ impl MultiRecordLog {
                 queue: queue_id,
                 position: next_position,
             };
-            self.record_log_writer.write_record(record).await?;
+            self.record_log_writer.write_record(record)?;
             has_empty_queues = true
         }
         if has_empty_queues {
             // We need to sync here! We are remove files from the FS
             // so we need to make sure our empty queue positions are properly persisted.
-            self.sync().await?;
+            self.sync()?;
         }
         Ok(())
     }
@@ -284,25 +280,20 @@ impl MultiRecordLog {
     ///
     /// This method will always truncate the record log and release the associated memory.
     /// It returns the number of records deleted.
-    pub async fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
+    pub fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
         info!(position = position, queue = queue, "truncate queue");
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
         self.record_log_writer
-            .write_record(MultiPlexedRecord::Truncate { position, queue })
-            .await?;
-        let removed_count = self
-            .in_mem_queues
-            .truncate(queue, position)
-            .await
-            .unwrap_or(0);
-        self.run_gc_if_necessary().await?;
-        self.sync_on_policy().await?;
+            .write_record(MultiPlexedRecord::Truncate { position, queue })?;
+        let removed_count = self.in_mem_queues.truncate(queue, position).unwrap_or(0);
+        self.run_gc_if_necessary()?;
+        self.sync_on_policy()?;
         Ok(removed_count)
     }
 
-    async fn run_gc_if_necessary(&mut self) -> io::Result<()> {
+    fn run_gc_if_necessary(&mut self) -> io::Result<()> {
         debug!("run_gc_if_necessary");
         if self
             .record_log_writer
@@ -316,14 +307,14 @@ impl MultiRecordLog {
             // But first we clone the current file number to make sure that the file that will
             // contain the truncate positions it self won't be GC'ed.
             let _file_number = self.record_log_writer.current_file().clone();
-            self.record_empty_queues_position().await?;
-            self.record_log_writer.directory().gc().await?;
+            self.record_empty_queues_position()?;
+            self.record_log_writer.directory().gc()?;
         }
         // only execute the following if we are above the debug  level in tokio tracing
         if event_enabled!(Level::DEBUG) {
             for queue in self.list_queues() {
                 let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
-                let first_pos = queue.range(..).next().map(|(pos, _)| pos);
+                let first_pos = queue.range(..).next().map(|record| record.position);
                 let last_pos = queue.last_position();
                 debug!(first_pos=?first_pos, last_pos=?last_pos, "queue positions after gc");
             }
@@ -335,23 +326,23 @@ impl MultiRecordLog {
         &self,
         queue: &str,
         range: R,
-    ) -> Result<impl Iterator<Item = (u64, Cow<[u8]>)> + '_, MissingQueue>
+    ) -> Result<impl Iterator<Item = Record>, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {
         self.in_mem_queues.range(queue, range)
     }
 
-    async fn sync_on_policy(&mut self) -> io::Result<()> {
+    fn sync_on_policy(&mut self) -> io::Result<()> {
         if self.next_sync.should_sync() {
-            self.sync().await?;
+            self.sync()?;
             self.next_sync.update_synced();
         }
         Ok(())
     }
 
-    pub async fn sync(&mut self) -> io::Result<()> {
-        self.record_log_writer.flush().await
+    pub fn sync(&mut self) -> io::Result<()> {
+        self.record_log_writer.flush()
     }
 
     /// Returns the position of the last record appended to the queue.
@@ -360,7 +351,7 @@ impl MultiRecordLog {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self, queue: &str) -> Result<Option<(u64, Cow<[u8]>)>, MissingQueue> {
+    pub fn last_record(&self, queue: &str) -> Result<Option<Record<'_>>, MissingQueue> {
         self.in_mem_queues.last_record(queue)
     }
 

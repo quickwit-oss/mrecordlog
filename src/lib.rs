@@ -1,6 +1,8 @@
-mod block_read_write;
-pub use self::block_read_write::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
+use std::borrow::Cow;
 
+mod block_read_write;
+
+pub use block_read_write::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
 pub mod error;
 mod frame;
 mod mem;
@@ -9,7 +11,22 @@ mod record;
 mod recordlog;
 mod rolling;
 
-pub use self::multi_record_log::{MultiRecordLog, SyncPolicy};
+pub use multi_record_log::{MultiRecordLog, SyncPolicy};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Record<'a> {
+    pub position: u64,
+    pub payload: Cow<'a, [u8]>,
+}
+
+impl<'a> Record<'a> {
+    pub fn new(position: u64, payload: &'a [u8]) -> Self {
+        Record {
+            position,
+            payload: Cow::Borrowed(payload),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;
