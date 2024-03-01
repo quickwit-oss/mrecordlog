@@ -15,7 +15,7 @@ fn test_no_data() {
 fn test_empty_record() {
     let mut writer = RecordWriter::in_memory();
     writer.write_record("").unwrap();
-    writer.flush().unwrap();
+    writer.flush(false).unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert_eq!(reader.read_record::<&str>().unwrap(), Some(""));
@@ -27,7 +27,7 @@ fn test_simple_record() {
     let mut writer = RecordWriter::in_memory();
     let record = "hello";
     writer.write_record(record).unwrap();
-    writer.flush().unwrap();
+    writer.flush(false).unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert!(matches!(reader.read_record::<&str>(), Ok(Some("hello"))));
@@ -43,7 +43,7 @@ fn test_spans_over_more_than_one_block() {
     let long_entry: String = make_long_entry(80_000);
     let mut writer = RecordWriter::in_memory();
     writer.write_record(long_entry.as_str()).unwrap();
-    writer.flush().unwrap();
+    writer.flush(false).unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     let record_payload: &str = reader.read_record().unwrap().unwrap();
@@ -60,7 +60,7 @@ fn test_block_requires_padding() {
     let mut writer = RecordWriter::in_memory();
     writer.write_record(long_record.as_str()).unwrap();
     writer.write_record(short_record).unwrap();
-    writer.flush().unwrap();
+    writer.flush(false).unwrap();
     let buffer: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buffer[..]));
     assert_eq!(
@@ -80,7 +80,7 @@ fn test_first_chunk_empty() {
     let mut writer = RecordWriter::in_memory();
     writer.write_record(&long_record[..]).unwrap();
     writer.write_record(short_record).unwrap();
-    writer.flush().unwrap();
+    writer.flush(false).unwrap();
     let buf: Vec<u8> = writer.into_writer().into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert_eq!(
@@ -98,7 +98,7 @@ fn test_behavior_upon_corruption() {
     for record in &records {
         writer.write_record(record.as_str()).unwrap();
     }
-    writer.flush().unwrap();
+    writer.flush(false).unwrap();
     let mut buffer: Vec<u8> = writer.into_writer().into();
     {
         let mut reader = RecordReader::open(ArrayReader::from(&buffer[..]));

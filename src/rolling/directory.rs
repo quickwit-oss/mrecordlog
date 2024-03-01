@@ -103,6 +103,16 @@ impl Directory {
         file.seek(SeekFrom::Start(0u64))?;
         Ok(file)
     }
+
+    fn sync_directory(&self) -> io::Result<()> {
+        let mut open_opts = OpenOptions::new();
+        // Linux needs read to be set, otherwise returns EINVAL
+        // write must not be set, or it fails with EISDIR
+        open_opts.read(true);
+        let fd = open_opts.open(&self.dir)?;
+        fd.sync_data()?;
+        Ok(())
+    }
 }
 
 pub struct RollingReader {
@@ -235,6 +245,8 @@ impl BlockWrite for RollingWriter {
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.offset + buf.len() > FILE_NUM_BYTES {
             self.file.flush()?;
+            self.file.get_ref().sync_data()?;
+            self.directory.sync_directory()?;
 
             let (file_number, file) =
                 if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
@@ -255,8 +267,14 @@ impl BlockWrite for RollingWriter {
         Ok(())
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+    fn flush(&mut self, fsync: bool) -> io::Result<()> {
+        if fsync {
+            self.file.flush()?;
+            self.file.get_ref().sync_data()?;
+            self.directory.sync_directory()
+        } else {
+            self.file.flush()
+        }
     }
 
     fn num_bytes_remaining_in_block(&self) -> usize {

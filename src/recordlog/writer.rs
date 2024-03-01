@@ -68,9 +68,9 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
     }
 
     /// Flushes and sync the data to disk.
-    pub fn flush(&mut self) -> io::Result<()> {
+    pub fn flush(&mut self, fsync: bool) -> io::Result<()> {
         // Empty the application buffer.
-        self.frame_writer.flush()
+        self.frame_writer.flush(fsync)
     }
 
     pub fn get_underlying_wrt(&self) -> &W {
