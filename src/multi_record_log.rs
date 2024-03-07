@@ -13,7 +13,7 @@ use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
-use crate::{mem, Record};
+use crate::{mem, MemoryUsage, Record};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -356,7 +356,7 @@ impl MultiRecordLog {
     }
 
     /// Returns the quantity of data stored in the in memory queue.
-    pub fn memory_usage(&self) -> usize {
+    pub fn memory_usage(&self) -> MemoryUsage {
         self.in_mem_queues.size()
     }
 

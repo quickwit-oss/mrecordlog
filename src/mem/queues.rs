@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
 use crate::mem::MemQueue;
 use crate::rolling::FileNumber;
-use crate::Record;
+use crate::{MemoryUsage, Record};
 
 #[derive(Default)]
 pub(crate) struct MemQueues {
@@ -154,10 +154,19 @@ impl MemQueues {
         }
     }
 
-    pub fn size(&self) -> usize {
-        self.queues
+    pub fn size(&self) -> MemoryUsage {
+        let size = self
+            .queues
             .iter()
             .map(|(name, queue)| name.len() + queue.size())
-            .sum()
+            .sum();
+
+        let capacity = self
+            .queues
+            .iter()
+            .map(|(name, queue)| name.capacity() + queue.capacity())
+            .sum();
+
+        MemoryUsage { size, capacity }
     }
 }
