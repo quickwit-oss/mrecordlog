@@ -13,7 +13,7 @@ use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
-use crate::{mem, RessourceUsage, Record};
+use crate::{mem, Record, ResourceUsage};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -355,12 +355,14 @@ impl MultiRecordLog {
         self.in_mem_queues.last_record(queue)
     }
 
-    /// Return the ammount of memory and disk space used by mrecordlog.
-    pub fn ressource_usage(&self) -> RessourceUsage {
-        let disk_size = self.record_log_writer.size();
-        let (memory_size, memory_capacity) = self.in_mem_queues.size();
-        RessourceUsage {
-            memory_size, memory_capacity, disk_size,
+    /// Return the amount of memory and disk space used by mrecordlog.
+    pub fn resource_usage(&self) -> ResourceUsage {
+        let disk_used_bytes = self.record_log_writer.size();
+        let (memory_used_bytes, memory_allocated_bytes) = self.in_mem_queues.size();
+        ResourceUsage {
+            memory_used_bytes,
+            memory_allocated_bytes,
+            disk_used_bytes,
         }
     }
 }

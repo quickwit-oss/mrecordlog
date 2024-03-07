@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
 use crate::mem::MemQueue;
 use crate::rolling::FileNumber;
-use crate::{Record};
+use crate::Record;
 
 #[derive(Default)]
 pub(crate) struct MemQueues {

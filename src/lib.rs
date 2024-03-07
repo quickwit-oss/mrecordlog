@@ -28,15 +28,15 @@ impl<'a> Record<'a> {
     }
 }
 
-/// Ressource used by mrecordlog
+/// Resources used by mrecordlog
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RessourceUsage {
+pub struct ResourceUsage {
     /// Actual size of the memory used
-    pub memory_size: usize,
+    pub memory_used_bytes: usize,
     /// Capacity allocated, a part of which may be unused right now
-    pub memory_capacity: usize,
+    pub memory_allocated_bytes: usize,
     /// Disk size used
-    pub disk_size: usize,
+    pub disk_used_bytes: usize,
 }
 
 #[cfg(test)]
