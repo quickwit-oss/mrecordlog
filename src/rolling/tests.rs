@@ -86,7 +86,7 @@ fn test_read_truncated() {
         std::fs::OpenOptions::new()
             .truncate(true)
             .write(true)
-            .open(&filepath)
+            .open(filepath)
             .unwrap();
     }
     {
