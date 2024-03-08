@@ -29,7 +29,7 @@ impl<'a> Record<'a> {
 }
 
 /// Resources used by mrecordlog
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourceUsage {
     /// Actual size of the memory used
     pub memory_used_bytes: usize,
