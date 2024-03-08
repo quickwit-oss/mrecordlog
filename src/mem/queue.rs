@@ -22,6 +22,10 @@ impl RollingBuffer {
         self.buffer.len()
     }
 
+    fn capacity(&self) -> usize {
+        self.buffer.capacity()
+    }
+
     fn clear(&mut self) {
         self.buffer.clear();
         self.buffer.shrink_to_fit();
@@ -249,5 +253,10 @@ impl MemQueue {
     pub fn size(&self) -> usize {
         self.concatenated_records.len()
             + self.record_metas.len() * std::mem::size_of::<RecordMeta>()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.concatenated_records.capacity()
+            + self.record_metas.capacity() * std::mem::size_of::<RecordMeta>()
     }
 }

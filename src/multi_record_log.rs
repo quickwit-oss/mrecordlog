@@ -13,7 +13,7 @@ use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
-use crate::{mem, Record};
+use crate::{mem, Record, ResourceUsage};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -355,17 +355,14 @@ impl MultiRecordLog {
         self.in_mem_queues.last_record(queue)
     }
 
-    /// Returns the quantity of data stored in the in memory queue.
-    pub fn memory_usage(&self) -> usize {
-        self.in_mem_queues.size()
-    }
-
-    /// Returns the used disk space.
-    ///
-    /// This is typically higher than what [`Self::memory_usage`] reports as records are first
-    /// marked as truncated, and only get deleted once all other records in the same file are
-    /// truncated too.
-    pub fn disk_usage(&self) -> usize {
-        self.record_log_writer.size()
+    /// Return the amount of memory and disk space used by mrecordlog.
+    pub fn resource_usage(&self) -> ResourceUsage {
+        let disk_used_bytes = self.record_log_writer.size();
+        let (memory_used_bytes, memory_allocated_bytes) = self.in_mem_queues.size();
+        ResourceUsage {
+            memory_used_bytes,
+            memory_allocated_bytes,
+            disk_used_bytes,
+        }
     }
 }

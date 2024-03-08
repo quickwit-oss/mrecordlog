@@ -154,10 +154,20 @@ impl MemQueues {
         }
     }
 
-    pub fn size(&self) -> usize {
-        self.queues
+    /// Return a tuple of (size, capacity) of memory used by the memqueues
+    pub fn size(&self) -> (usize, usize) {
+        let size = self
+            .queues
             .iter()
             .map(|(name, queue)| name.len() + queue.size())
-            .sum()
+            .sum();
+
+        let capacity = self
+            .queues
+            .iter()
+            .map(|(name, queue)| name.capacity() + queue.capacity())
+            .sum();
+
+        (size, capacity)
     }
 }

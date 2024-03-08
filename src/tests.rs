@@ -323,21 +323,25 @@ fn test_multi_record_size() {
     let tempdir = tempfile::tempdir().unwrap();
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
-        assert_eq!(multi_record_log.memory_usage(), 0);
+        assert_eq!(multi_record_log.resource_usage().memory_used_bytes, 0);
+        assert_eq!(multi_record_log.resource_usage().memory_allocated_bytes, 0);
 
         multi_record_log.create_queue("queue").unwrap();
-        let size_mem_create = multi_record_log.memory_usage();
-        assert!(size_mem_create > 0);
+        let size_mem_create = multi_record_log.resource_usage();
+        assert!(size_mem_create.memory_used_bytes > 0);
+        assert!(size_mem_create.memory_allocated_bytes >= size_mem_create.memory_used_bytes);
 
         multi_record_log
             .append_record("queue", None, &b"hello"[..])
             .unwrap();
-        let size_mem_append = multi_record_log.memory_usage();
-        assert!(size_mem_append > size_mem_create);
+        let size_mem_append = multi_record_log.resource_usage();
+        assert!(size_mem_append.memory_used_bytes > size_mem_create.memory_used_bytes);
+        assert!(size_mem_append.memory_allocated_bytes >= size_mem_append.memory_used_bytes);
+        assert!(size_mem_append.memory_allocated_bytes >= size_mem_create.memory_allocated_bytes);
 
         multi_record_log.truncate("queue", 0).unwrap();
-        let size_mem_truncate = multi_record_log.memory_usage();
-        assert!(size_mem_truncate < size_mem_append);
+        let size_mem_truncate = multi_record_log.resource_usage();
+        assert!(size_mem_truncate.memory_used_bytes < size_mem_append.memory_used_bytes);
     }
 }
 
