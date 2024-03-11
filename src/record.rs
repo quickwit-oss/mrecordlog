@@ -229,8 +229,9 @@ impl<'a> Iterator for MultiRecord<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MultiRecord, MultiPlexedRecord, RecordType};
     use std::convert::TryFrom;
+
+    use super::{MultiPlexedRecord, MultiRecord, RecordType};
     use crate::Serializable;
 
     #[test]
@@ -280,7 +281,8 @@ mod tests {
         for num_truncated_bytes in 1..buffer.len() {
             // This should not panic. Typically, this will be an error, but
             // deserializing can also succeed (but will have wrong data).
-            num_errors += MultiRecord::new(&buffer[..buffer.len() - num_truncated_bytes]).is_err() as i32;
+            num_errors +=
+                MultiRecord::new(&buffer[..buffer.len() - num_truncated_bytes]).is_err() as i32;
         }
         assert!(num_errors >= 1);
     }
@@ -288,11 +290,7 @@ mod tests {
     #[test]
     fn test_multiplexedrecord_deserialization_ok() {
         let mut buffer_multirecord: Vec<u8> = vec![];
-        MultiRecord::serialize(
-            [b"123".as_slice()].into_iter(),
-            2,
-            &mut buffer_multirecord,
-        );
+        MultiRecord::serialize([b"123".as_slice()].into_iter(), 2, &mut buffer_multirecord);
         let record = MultiPlexedRecord::AppendRecords {
             queue: "queue_name",
             position: 10,
@@ -309,13 +307,9 @@ mod tests {
     #[test]
     fn test_multiplexedrecord_deserialization_corruption() {
         let mut buffer_multirecord: Vec<u8> = vec![];
-        MultiRecord::serialize(
-            [b"123".as_slice()].into_iter(),
-            2,
-            &mut buffer_multirecord,
-        );
+        MultiRecord::serialize([b"123".as_slice()].into_iter(), 2, &mut buffer_multirecord);
         let record = MultiPlexedRecord::AppendRecords {
-          queue: "queue_name",
+            queue: "queue_name",
             position: 10,
             records: MultiRecord::new_unchecked(&buffer_multirecord),
         };
@@ -327,7 +321,9 @@ mod tests {
             // This should not panic. Typically, this will be an error, but
             // deserializing can also succeed (but will have wrong data).
             num_errors += MultiPlexedRecord::deserialize(
-                &buffer_multiplexed[..buffer_multiplexed.len() - num_truncated_bytes]).is_none() as i32;
+                &buffer_multiplexed[..buffer_multiplexed.len() - num_truncated_bytes],
+            )
+            .is_none() as i32;
         }
         assert!(num_errors >= 1);
     }
