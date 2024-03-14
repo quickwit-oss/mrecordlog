@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
+
+use crate::FileNumber;
 
 /// RefCount a set of ordered files. Always track at least one file.
 pub struct FileTracker {
@@ -76,56 +77,6 @@ impl FileTracker {
     /// Return the number of file tracked.
     pub fn count(&self) -> usize {
         self.files.len()
-    }
-}
-
-#[derive(Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct FileNumber {
-    file_number: Arc<u64>,
-}
-
-impl FileNumber {
-    fn new(file_number: u64) -> Self {
-        FileNumber {
-            file_number: Arc::new(file_number),
-        }
-    }
-
-    /// Returns whether there is no clone of this FileNumber in existance.
-    ///
-    /// /!\ care should be taken to not have some other code store a &FileNumber which could alias
-    /// with self as it might then be sementically incorrect to delete content based only on this
-    /// returning `true`.
-    pub fn can_be_deleted(&self) -> bool {
-        Arc::strong_count(&self.file_number) == 1
-    }
-
-    #[cfg(test)]
-    pub fn unroll(&self, tracker: &FileTracker) -> Vec<u64> {
-        let mut file = self.clone();
-        let mut file_numbers = Vec::new();
-        loop {
-            file_numbers.push(file.file_number());
-            if let Some(next_file) = tracker.next(&file) {
-                file = next_file;
-            } else {
-                return file_numbers;
-            }
-        }
-    }
-
-    pub fn filename(&self) -> String {
-        format!("wal-{:020}", self.file_number)
-    }
-
-    #[cfg(test)]
-    pub fn file_number(&self) -> u64 {
-        *self.file_number
-    }
-
-    #[cfg(test)]
-    pub fn for_test(file_number: u64) -> Self {
-        FileNumber::new(file_number)
     }
 }
 

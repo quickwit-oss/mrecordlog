@@ -336,6 +336,7 @@ fn test_multi_record_size() {
             .unwrap();
         let size_mem_append = multi_record_log.resource_usage();
         assert!(size_mem_append.memory_used_bytes > size_mem_create.memory_used_bytes);
+        dbg!(&size_mem_append);
         assert!(size_mem_append.memory_allocated_bytes >= size_mem_append.memory_used_bytes);
         assert!(size_mem_append.memory_allocated_bytes >= size_mem_create.memory_allocated_bytes);
 

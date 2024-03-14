@@ -1,94 +1,13 @@
 use std::borrow::Cow;
-use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds};
 
+use bytes::buf::Buf;
+
 use crate::error::AppendError;
-use crate::rolling::FileNumber;
-use crate::Record;
+use crate::mem::{Arena, RollingBuffer};
+use crate::{FileNumber, Record};
 
-#[derive(Default)]
-struct RollingBuffer {
-    buffer: VecDeque<u8>,
-}
-
-impl RollingBuffer {
-    fn new() -> Self {
-        RollingBuffer {
-            buffer: VecDeque::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    fn capacity(&self) -> usize {
-        self.buffer.capacity()
-    }
-
-    fn clear(&mut self) {
-        self.buffer.clear();
-        self.buffer.shrink_to_fit();
-    }
-
-    fn drain_start(&mut self, pos: usize) {
-        let target_capacity = self.len() * 9 / 8;
-        self.buffer.drain(..pos);
-        // In order to avoid leaking memory we shrink the buffer.
-        // The last maximum length (= the length before drain)
-        // is a good estimate of what we will need in the future.
-        //
-        // We add 1/8 to that in order to make sure that we don't end up
-        // shrinking  / allocating for small variations.
-
-        if self.buffer.capacity() > target_capacity {
-            self.buffer.shrink_to(target_capacity);
-        }
-    }
-
-    fn extend(&mut self, slice: &[u8]) {
-        self.buffer.extend(slice.iter().copied());
-    }
-
-    fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<[u8]> {
-        let start = match bounds.start_bound() {
-            Bound::Included(pos) => *pos,
-            Bound::Excluded(pos) => pos + 1,
-            Bound::Unbounded => 0,
-        };
-
-        let end = match bounds.end_bound() {
-            Bound::Included(pos) => pos + 1,
-            Bound::Excluded(pos) => *pos,
-            Bound::Unbounded => self.len(),
-        };
-
-        let (left_part_of_queue, right_part_of_queue) = self.buffer.as_slices();
-
-        if end < left_part_of_queue.len() {
-            Cow::Borrowed(&left_part_of_queue[start..end])
-        } else if start >= left_part_of_queue.len() {
-            let start = start - left_part_of_queue.len();
-            let end = end - left_part_of_queue.len();
-
-            Cow::Borrowed(&right_part_of_queue[start..end])
-        } else {
-            // VecDeque is a rolling buffer. As a result, we do not have
-            // access to a continuous buffer.
-            //
-            // Here the requested slice cross the boundary and we need to allocate and copy the data
-            // in a new buffer.
-            let mut res = Vec::with_capacity(end - start);
-            res.extend_from_slice(&left_part_of_queue[start..]);
-            let end = end - left_part_of_queue.len();
-            res.extend_from_slice(&right_part_of_queue[..end]);
-
-            Cow::Owned(res)
-        }
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct RecordMeta {
     start_offset: usize,
     // in a vec of RecordMeta, this field should be set only on the last record
@@ -103,6 +22,22 @@ pub(crate) struct MemQueue {
     concatenated_records: RollingBuffer,
     start_position: u64,
     record_metas: Vec<RecordMeta>,
+}
+
+fn concatenate_buffers<'a>(mut buffers: impl Iterator<Item = &'a [u8]>) -> Cow<'a, [u8]> {
+    let Some(first) = buffers.next() else {
+        return Cow::Borrowed(&[]);
+    };
+    let Some(second) = buffers.next() else {
+        return Cow::Borrowed(first);
+    };
+    let mut concatenated_buffer: Vec<u8> = Vec::with_capacity(first.len() + second.len());
+    concatenated_buffer.extend_from_slice(first);
+    concatenated_buffer.extend_from_slice(second);
+    for buffer in buffers {
+        concatenated_buffer.extend_from_slice(buffer);
+    }
+    Cow::Owned(concatenated_buffer)
 }
 
 impl MemQueue {
@@ -124,10 +59,15 @@ impl MemQueue {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self) -> Option<Record> {
-        self.record_metas.last().map(|record| Record {
+    pub fn last_record<'a>(&self, arena: &'a Arena) -> Option<Record<'a>> {
+        let record = self.record_metas.last()?;
+        let buf_iter = self
+            .concatenated_records
+            .get_range(record.start_offset.., arena);
+        let payload = concatenate_buffers(buf_iter);
+        Some(Record {
             position: record.position,
-            payload: self.concatenated_records.get_range(record.start_offset..),
+            payload,
         })
     }
 
@@ -148,6 +88,7 @@ impl MemQueue {
         file_number: &FileNumber,
         target_position: u64,
         payload: &[u8],
+        arena: &mut Arena,
     ) -> Result<(), AppendError> {
         let next_position = self.next_position();
         if target_position < next_position {
@@ -174,7 +115,7 @@ impl MemQueue {
             position: target_position,
         };
         self.record_metas.push(record_meta);
-        self.concatenated_records.extend(payload);
+        self.concatenated_records.extend_from_slice(payload, arena);
         Ok(())
     }
 
@@ -187,7 +128,7 @@ impl MemQueue {
             .binary_search_by_key(&position, |record| record.position)
     }
 
-    pub fn range<R>(&self, range: R) -> impl Iterator<Item = Record> + '_
+    pub fn range<'a, R>(&'a self, range: R, arena: &'a Arena) -> impl Iterator<Item = Record> + 'a
     where R: RangeBounds<u64> + 'static {
         let start_idx: usize = match range.start_bound() {
             Bound::Included(&start_from) => {
@@ -209,14 +150,16 @@ impl MemQueue {
             .map(move |idx| {
                 let record = &self.record_metas[idx];
                 let position = record.position;
-                let start_offset = record.start_offset;
-                let payload = if let Some(next_record_meta) = self.record_metas.get(idx + 1) {
-                    let end_offset = next_record_meta.start_offset;
-                    self.concatenated_records
-                        .get_range(start_offset..end_offset)
+                let start_bound = Bound::Included(record.start_offset);
+                let end_bound = if let Some(next_record_meta) = self.record_metas.get(idx + 1) {
+                    Bound::Excluded(next_record_meta.start_offset)
                 } else {
-                    self.concatenated_records.get_range(start_offset..)
+                    Bound::Unbounded
                 };
+                let payload_iter = self
+                    .concatenated_records
+                    .get_range((start_bound, end_bound), arena);
+                let payload = concatenate_buffers(payload_iter);
                 Record { position, payload }
             })
     }
@@ -225,13 +168,13 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub fn truncate(&mut self, truncate_up_to_pos: u64) -> usize {
+    pub fn truncate(&mut self, truncate_up_to_pos: u64, arena: &mut Arena) -> usize {
         if self.start_position > truncate_up_to_pos {
             return 0;
         }
         if truncate_up_to_pos + 1 >= self.next_position() {
             self.start_position = truncate_up_to_pos + 1;
-            self.concatenated_records.clear();
+            self.concatenated_records.clear(arena);
             let record_count = self.record_metas.len();
             self.record_metas.clear();
             return record_count;
@@ -245,7 +188,8 @@ impl MemQueue {
         for record_meta in &mut self.record_metas {
             record_meta.start_offset -= start_offset_to_keep;
         }
-        self.concatenated_records.drain_start(start_offset_to_keep);
+        self.concatenated_records
+            .truncate_to(start_offset_to_keep, arena);
         self.start_position = truncate_up_to_pos + 1;
         first_record_to_keep
     }

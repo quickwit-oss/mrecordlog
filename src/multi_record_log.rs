@@ -242,12 +242,12 @@ impl MultiRecordLog {
         self.record_log_writer.write_record(record)?;
         self.sync_on_policy()?;
 
-        let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
+        let (mem_queue, arena) = self.in_mem_queues.get_queue_mut(queue)?;
         let mut max_position = position;
         for record in records {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
-            mem_queue.append_record(&file_number, position, payload)?;
+            mem_queue.append_record(&file_number, position, payload, arena)?;
             max_position = position;
         }
 
@@ -314,7 +314,10 @@ impl MultiRecordLog {
         if event_enabled!(Level::DEBUG) {
             for queue in self.list_queues() {
                 let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
-                let first_pos = queue.range(..).next().map(|record| record.position);
+                let first_pos = queue
+                    .range(.., &self.in_mem_queues.arena)
+                    .next()
+                    .map(|record| record.position);
                 let last_pos = queue.last_position();
                 debug!(first_pos=?first_pos, last_pos=?last_pos, "queue positions after gc");
             }
