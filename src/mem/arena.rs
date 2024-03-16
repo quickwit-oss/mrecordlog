@@ -5,8 +5,9 @@ use std::time::Instant;
 #[cfg(test)]
 use mock_instant::Instant;
 
+/// 256 KiB.
 #[cfg(not(test))]
-pub const PAGE_SIZE: usize = 1 << 20;
+pub const PAGE_SIZE: usize = 1 << 18;
 
 #[cfg(test)]
 pub const PAGE_SIZE: usize = 7;
@@ -145,7 +146,7 @@ impl Arena {
         // We pick a target slightly higher than the maximum number of pages used in the last 5
         // minutes to avoid needless allocations when we are experience a general increase
         // in memory usage.
-        let target_num_pages = (max_used_num_pages_in_last_5_min * 105 / 100).max(10);
+        let target_num_pages = max_used_num_pages_in_last_5_min + 10;
         let num_pages_to_free = self.num_allocated_pages().saturating_sub(target_num_pages);
         assert!(num_pages_to_free <= self.free_page_ids.len());
         for _ in 0..num_pages_to_free {
