@@ -1,4 +1,6 @@
+use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds};
+
 use crate::error::AppendError;
 use crate::mem::{Arena, RollingBuffer};
 use crate::{FileNumber, Record};
@@ -16,30 +18,17 @@ struct RecordMeta {
 pub(crate) struct MemQueue {
     // Concatenated records
     concatenated_records: RollingBuffer,
+    // If `record_metas` is not empty, `start_position` should be the position of the first record.
     start_position: u64,
-    record_metas: Vec<RecordMeta>,
+    record_metas: VecDeque<RecordMeta>,
 }
-
-// fn concatenate_buffers<'a>(mut buf: impl Buf + 'a) -> Cow<'a, [u8]> {
-//     let first_chunk: &'a buf = buf.chunk();
-//     if buf.remaining() == first_chunk.len() {
-//         return Cow::Borrowed(first_chunk);
-//     }
-//     let mut concatenated_buffer: Vec<u8> = Vec::with_capacity(buf.remaining());
-//     while buf.has_remaining() {
-//         let chunk = buf.chunk();
-//         concatenated_buffer.extend_from_slice(chunk);
-//         buf.advance(chunk.len());
-//     }
-//     Cow::Owned(concatenated_buffer)
-// }
 
 impl MemQueue {
     pub fn with_next_position(next_position: u64) -> Self {
         MemQueue {
             concatenated_records: RollingBuffer::new(),
             start_position: next_position,
-            record_metas: Vec::new(),
+            record_metas: Default::default(),
         }
     }
 
@@ -54,10 +43,10 @@ impl MemQueue {
 
     /// Returns the last record stored in the queue.
     pub fn last_record<'a>(&'a self, arena: &'a Arena) -> Option<Record<'a>> {
-        let record = self.record_metas.last()?;
+        let record = self.record_metas.back()?;
         let record_payload = self
             .concatenated_records
-            .get_range_buf(record.start_offset.., arena);
+            .get_range(record.start_offset.., arena);
         Some(Record {
             position: record.position,
             payload: record_payload,
@@ -67,7 +56,7 @@ impl MemQueue {
     /// Returns what the next position should be.
     pub fn next_position(&self) -> u64 {
         self.record_metas
-            .last()
+            .back()
             .map(|record| record.position + 1)
             .unwrap_or(self.start_position)
     }
@@ -92,7 +81,7 @@ impl MemQueue {
             self.start_position = target_position;
         }
 
-        let file_number = if let Some(record_meta) = self.record_metas.last_mut() {
+        let file_number = if let Some(record_meta) = self.record_metas.back_mut() {
             if record_meta.file_number.as_ref() == Some(file_number) {
                 record_meta.file_number.take().unwrap()
             } else {
@@ -103,11 +92,11 @@ impl MemQueue {
         };
 
         let record_meta = RecordMeta {
-            start_offset: self.concatenated_records.len(),
+            start_offset: self.concatenated_records.end_offset(),
             file_number: Some(file_number),
             position: target_position,
         };
-        self.record_metas.push(record_meta);
+        self.record_metas.push_back(record_meta);
         self.concatenated_records.extend_from_slice(payload, arena);
         Ok(())
     }
@@ -149,9 +138,9 @@ impl MemQueue {
                 } else {
                     Bound::Unbounded
                 };
-                let payload= self
+                let payload = self
                     .concatenated_records
-                    .get_range_buf((start_bound, end_bound), arena);
+                    .get_range((start_bound, end_bound), arena);
                 // let payload = concatenate_buffers(payload_buf);
                 Record { position, payload }
             })
@@ -178,11 +167,8 @@ impl MemQueue {
 
         let start_offset_to_keep: usize = self.record_metas[first_record_to_keep].start_offset;
         self.record_metas.drain(..first_record_to_keep);
-        // for record_meta in &mut self.record_metas {
-        //     record_meta.start_offset -= start_offset_to_keep;
-        // }
         self.concatenated_records
-            .truncate_up_to_included(start_offset_to_keep, arena);
+            .truncate_up_to_excluded(start_offset_to_keep, arena);
         self.start_position = truncate_up_to_pos + 1;
         first_record_to_keep
     }

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -357,10 +356,10 @@ fn test_multi_record() {
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         multi_record_log.truncate("queue", 0).unwrap();
-        let records: Vec<Record> =     multi_record_log
-                .range("queue", ..)
-                .unwrap()
-                .collect::<Vec<_>>();
+        let records: Vec<Record> = multi_record_log
+            .range("queue", ..)
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].position, 1);
         assert_eq!(records[0].payload.to_cow(), b"22".as_slice());
@@ -377,9 +376,9 @@ fn test_multi_record() {
     {
         let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         let records = multi_record_log
-                .range("queue", ..)
-                .unwrap()
-                .collect::<Vec<_>>();
+            .range("queue", ..)
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].position, 1);
         assert_eq!(records[0].payload.to_cow(), b"22".as_slice());

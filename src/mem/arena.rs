@@ -1,4 +1,9 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(test))]
+use std::time::Instant;
+
+#[cfg(test)]
+use mock_instant::Instant;
 
 #[cfg(not(test))]
 pub const PAGE_SIZE: usize = 1 << 20;
@@ -60,7 +65,7 @@ impl Default for ArenaStats {
     fn default() -> ArenaStats {
         ArenaStats {
             // We arbitrarily initialize num used pages former to 100.
-            max_num_used_pages_former: 100,
+            max_num_used_pages_former: 0,
             max_num_used_pages_current: 0,
             call_counter: 0u8,
             next_window_start: Instant::now(),
@@ -76,10 +81,12 @@ impl ArenaStats {
         self.next_window_start = now + WINDOW;
     }
 
+    /// Records the number of used pages, and returns an estimation of the maximum number of pages
+    /// in the last 5 minutes.
     pub fn record_num_used_page(&mut self, num_used_pages: usize) -> usize {
         // The only function of the call counter is to avoid calling `Instant::now()`
         // at every single call.
-        self.call_counter = self.call_counter.wrapping_add(1);
+        self.call_counter = (self.call_counter + 1) % 64;
         if self.call_counter == 0u8 {
             let now = Instant::now();
             if now > self.next_window_start {
@@ -87,26 +94,17 @@ impl ArenaStats {
             }
         }
         self.max_num_used_pages_current = self.max_num_used_pages_current.max(num_used_pages);
-        self.target_num_pages()
-    }
-
-    // This method returns a target number of pages.
-    //
-    // If we currently have a number of allocated pages higher than this, we need to free
-    // pages until we reach this number.
-    fn target_num_pages(&self) -> usize {
-        let max_over_both_windows = self
-            .max_num_used_pages_former
-            .max(self.max_num_used_pages_current);
-        (max_over_both_windows + 10).max(max_over_both_windows * 105 / 100)
+        self.max_num_used_pages_former
+            .max(self.max_num_used_pages_current)
     }
 }
 
 impl Arena {
     /// Returns an allocated page id.
-    pub fn get_page_id(&mut self) -> PageId {
+    pub fn acquire_page(&mut self) -> PageId {
         if let Some(page_id) = self.free_page_ids.pop() {
             assert!(self.pages[page_id.0].is_some());
+            self.gc();
             return page_id;
         }
         let page: Page = vec![0u8; PAGE_SIZE].into_boxed_slice();
@@ -114,10 +112,12 @@ impl Arena {
             let slot = &mut self.pages[free_slot.0];
             assert!(slot.is_none());
             *slot = Some(page);
-            return free_slot;
+            self.gc();
+            free_slot
         } else {
             let new_page_id = self.pages.len();
             self.pages.push(Some(page));
+            self.gc();
             PageId(new_page_id)
         }
     }
@@ -141,7 +141,11 @@ impl Arena {
     /// `gc` releases memory by deallocating ALL of the free pages.
     pub fn gc(&mut self) {
         let num_used_pages = self.num_used_pages();
-        let target_num_pages = self.stats.record_num_used_page(num_used_pages);
+        let max_used_num_pages_in_last_5_min = self.stats.record_num_used_page(num_used_pages);
+        // We pick a target slightly higher than the maximum number of pages used in the last 5
+        // minutes to avoid needless allocations when we are experience a general increase
+        // in memory usage.
+        let target_num_pages = (max_used_num_pages_in_last_5_min * 105 / 100).max(10);
         let num_pages_to_free = self.num_allocated_pages().saturating_sub(target_num_pages);
         assert!(num_pages_to_free <= self.free_page_ids.len());
         for _ in 0..num_pages_to_free {
@@ -162,10 +166,6 @@ impl Arena {
         self.pages.len() - self.free_slots.len() - self.free_page_ids.len()
     }
 
-    pub fn capacity(&self) -> usize {
-        self.num_allocated_pages() * PAGE_SIZE
-    }
-
     pub fn unused_capacity(&self) -> usize {
         self.free_page_ids.len() * PAGE_SIZE
     }
@@ -173,29 +173,56 @@ impl Arena {
 
 #[cfg(test)]
 mod tests {
+    use mock_instant::MockClock;
+
     use super::*;
 
     #[test]
     fn test_arena_simple() {
         let mut arena = Arena::default();
-        assert_eq!(arena.capacity(), 0);
-        assert_eq!(arena.get_page_id(), PageId(0));
-        assert_eq!(arena.get_page_id(), PageId(1));
+        assert_eq!(arena.num_allocated_pages(), 0);
+        assert_eq!(arena.acquire_page(), PageId(0));
+        assert_eq!(arena.acquire_page(), PageId(1));
         arena.release_page(PageId(0));
-        assert_eq!(arena.get_page_id(), PageId(0));
+        assert_eq!(arena.acquire_page(), PageId(0));
     }
 
     #[test]
     fn test_arena_gc() {
         let mut arena = Arena::default();
-        assert_eq!(arena.capacity(), 0);
-        assert_eq!(arena.get_page_id(), PageId(0));
-        assert_eq!(arena.get_page_id(), PageId(1));
+        assert_eq!(arena.num_allocated_pages(), 0);
+        assert_eq!(arena.acquire_page(), PageId(0));
+        assert_eq!(arena.acquire_page(), PageId(1));
         arena.release_page(PageId(1));
         assert_eq!(arena.num_allocated_pages(), 2);
         arena.gc();
         assert_eq!(arena.num_allocated_pages(), 2);
-        assert_eq!(arena.get_page_id(), PageId(1));
+        assert_eq!(arena.acquire_page(), PageId(1));
         assert_eq!(arena.num_allocated_pages(), 2);
+    }
+
+    #[test]
+    fn test_arena_stats() {
+        let mut arena_stats = ArenaStats::default();
+        for _ in 0..256 {
+            assert_eq!(arena_stats.record_num_used_page(10), 10);
+        }
+        MockClock::advance(WINDOW.mul_f32(1.1f32));
+        for _ in 0..256 {
+            assert_eq!(arena_stats.record_num_used_page(1), 10);
+        }
+        MockClock::advance(WINDOW.mul_f32(1.1f32));
+        for _ in 0..256 {
+            arena_stats.record_num_used_page(1);
+        }
+        assert_eq!(arena_stats.record_num_used_page(1), 1);
+        assert_eq!(arena_stats.record_num_used_page(2), 2);
+        for _ in 0..256 {
+            assert_eq!(arena_stats.record_num_used_page(1), 2);
+        }
+        MockClock::advance(WINDOW);
+        for _ in 0..256 {
+            assert_eq!(arena_stats.record_num_used_page(1), 2);
+        }
     }
 }

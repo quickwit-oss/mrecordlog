@@ -17,39 +17,15 @@ pub use multi_record_log::{MultiRecordLog, SyncPolicy};
 #[derive(Debug)]
 pub struct Record<'a> {
     pub position: u64,
-    payload: PagesBuf<'a>,
+    pub payload: PagesBuf<'a>,
 }
-
 
 impl<'a> Record<'a> {
     #[cfg(test)]
-    pub fn payload_equal(&self, mut payload: &[u8]) -> bool {
-        use bytes::Buf;
-        let mut self_payload = self.payload;
-        if self_payload.remaining() != payload.len() {
-            return false;
-        }
-        while self_payload.has_remaining() {
-            let chunk = self_payload.chunk();
-            let chunk_len = chunk.len();
-            if chunk != &payload[..chunk_len] {
-                return false;
-            }
-            self_payload.advance(chunk_len);
-            payload = &payload[chunk_len..];
-        }
-        true
+    pub fn payload_equal(&self, payload: &[u8]) -> bool {
+        self.payload.to_cow() == payload
     }
 }
-
-// impl<'a> Record<'a> {
-//     pub fn new(position: u64, payload: &'a [u8]) -> Self {
-//         Record {
-//             position,
-//             payload: Cow::Borrowed(payload),
-//         }
-//     }
-// }
 
 #[derive(Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct FileNumber {

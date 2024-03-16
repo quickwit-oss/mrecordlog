@@ -1,7 +1,6 @@
 use super::*;
 use crate::error::{AlreadyExists, AppendError};
-use crate::FileNumber;
-use crate::Record;
+use crate::{FileNumber, Record};
 
 #[test]
 fn test_mem_queues_already_exists() {
@@ -44,7 +43,7 @@ fn test_mem_queues() {
             .append_record("droopy", &FileNumber::for_test(1), 3, b"payer")
             .is_ok());
         let record = mem_queues.range("droopy", 0..).unwrap().next().unwrap();
-        assert_eq!( record.position, 0);
+        assert_eq!(record.position, 0);
         assert!(record.payload_equal(b"hello"));
         let droopy: Vec<Record> = mem_queues.range("droopy", 1..).unwrap().collect();
         assert_eq!(droopy.len(), 3);
@@ -88,13 +87,11 @@ fn test_mem_queues_truncate() {
     }
     mem_queues.truncate("droopy", 3);
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
-    dbg!(&droopy);
     assert_eq!(droopy.len(), 2);
     assert_eq!(droopy[0].position, 4);
     assert!(droopy[0].payload_equal(b"!"));
 
     assert_eq!(droopy[1].position, 5);
-    dbg!(&droopy[1]);
     assert!(droopy[1].payload_equal(b"payer2"));
 }
 

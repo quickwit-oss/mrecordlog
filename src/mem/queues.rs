@@ -165,10 +165,7 @@ impl MemQueues {
         let size = self
             .queues
             .iter()
-            .map(|(name, queue)| {
-                dbg!(queue.size());
-                name.len() + queue.size()
-            })
+            .map(|(name, queue)| name.len() + queue.size())
             .sum();
 
         let capacity = self
