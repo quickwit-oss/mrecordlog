@@ -160,6 +160,10 @@ impl MemQueues {
         Some(queue.truncate_up_to_included(position, &mut self.arena))
     }
 
+    pub fn roll_and_gc(&mut self) {
+        self.arena.roll_and_gc();
+    }
+
     /// Return a tuple of (size, capacity) of memory used by the memqueues
     pub fn size(&self) -> (usize, usize) {
         let size = self

@@ -293,6 +293,10 @@ impl MultiRecordLog {
         Ok(removed_count)
     }
 
+    pub fn memory_gc(&mut self) {
+        self.in_mem_queues.roll_and_gc();
+    }
+
     fn run_gc_if_necessary(&mut self) -> io::Result<()> {
         debug!("run_gc_if_necessary");
         if self

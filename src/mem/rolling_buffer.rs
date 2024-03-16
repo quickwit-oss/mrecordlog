@@ -176,7 +176,8 @@ impl<'a> PagesBuf<'a> {
         std::borrow::Cow::Owned(buf)
     }
 
-    // Contrary to Buf::chunk, this method returns a slice with a `'a` lifetime (so it can outlive 'self).
+    // Contrary to Buf::chunk, this method returns a slice with a `'a` lifetime (so it can outlive
+    // 'self).
     fn chunk_with_lifetime(&self) -> &'a [u8] {
         let Some(first_page_id) = self.page_ids.first().copied() else {
             return &[];
