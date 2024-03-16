@@ -1,6 +1,6 @@
 use super::*;
 use crate::error::{AlreadyExists, AppendError};
-use crate::rolling::FileNumber;
+use crate::FileNumber;
 use crate::Record;
 
 #[test]
@@ -43,22 +43,23 @@ fn test_mem_queues() {
         assert!(mem_queues
             .append_record("droopy", &FileNumber::for_test(1), 3, b"payer")
             .is_ok());
-        assert_eq!(
-            mem_queues.range("droopy", 0..).unwrap().next(),
-            Some(Record::new(0, b"hello"))
-        );
+        let record = mem_queues.range("droopy", 0..).unwrap().next().unwrap();
+        assert_eq!( record.position, 0);
+        assert!(record.payload_equal(b"hello"));
         let droopy: Vec<Record> = mem_queues.range("droopy", 1..).unwrap().collect();
-        assert_eq!(
-            &droopy,
-            &[
-                Record::new(1, b"happy"),
-                Record::new(2, b"tax"),
-                Record::new(3, b"payer"),
-            ],
-        );
+        assert_eq!(droopy.len(), 3);
+        assert_eq!(droopy[0].position, 1);
+        assert_eq!(droopy[1].position, 2);
+        assert_eq!(droopy[2].position, 3);
+        assert!(droopy[0].payload_equal(b"happy"));
+        assert!(droopy[1].payload_equal(b"tax"));
+        assert!(droopy[2].payload_equal(b"payer"));
     }
     let fable: Vec<Record> = mem_queues.range("fable", 1..).unwrap().collect();
-    assert_eq!(&fable, &[Record::new(1, b"corbeau")]);
+    assert_eq!(fable.len(), 1);
+    let fable_record = fable.into_iter().next().unwrap();
+    assert_eq!(fable_record.position, 1);
+    assert!(fable_record.payload_equal(b"corbeau"));
 }
 
 #[test]
@@ -82,15 +83,19 @@ fn test_mem_queues_truncate() {
             .append_record("droopy", &1.into(), 4, b"!")
             .is_ok());
         mem_queues
-            .append_record("droopy", &1.into(), 5, b"payer")
+            .append_record("droopy", &1.into(), 5, b"payer2")
             .unwrap();
     }
     mem_queues.truncate("droopy", 3);
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
-    assert_eq!(
-        &droopy[..],
-        &[Record::new(4, b"!"), Record::new(5, b"payer"),]
-    );
+    dbg!(&droopy);
+    assert_eq!(droopy.len(), 2);
+    assert_eq!(droopy[0].position, 4);
+    assert!(droopy[0].payload_equal(b"!"));
+
+    assert_eq!(droopy[1].position, 5);
+    dbg!(&droopy[1]);
+    assert!(droopy[1].payload_equal(b"payer2"));
 }
 
 #[test]
@@ -110,26 +115,29 @@ fn test_mem_queues_skip_advance() {
         .append_record("droopy", &1.into(), 1, b"happy")
         .is_err());
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
-    assert_eq!(
-        &droopy[..],
-        &[
-            Record::new(0, b"hello"),
-            Record::new(2, b"happy"),
-            Record::new(3, b"happy"),
-        ]
-    );
+    assert_eq!(droopy.len(), 3);
+    assert_eq!(droopy[0].position, 0);
+    assert!(droopy[0].payload_equal(b"hello"));
+    assert_eq!(droopy[1].position, 2);
+    assert!(droopy[1].payload_equal(b"happy"));
+    assert_eq!(droopy[2].position, 3);
+    assert!(droopy[2].payload_equal(b"happy"));
     let droopy: Vec<Record> = mem_queues.range("droopy", 1..).unwrap().collect();
-    assert_eq!(
-        &droopy[..],
-        &[Record::new(2, b"happy"), Record::new(3, b"happy"),]
-    );
+    assert_eq!(droopy.len(), 2);
+    assert_eq!(droopy[0].position, 2);
+    assert!(droopy[0].payload_equal(b"happy"));
+    assert_eq!(droopy[1].position, 3);
+    assert!(droopy[1].payload_equal(b"happy"));
     let droopy: Vec<Record> = mem_queues.range("droopy", 2..).unwrap().collect();
-    assert_eq!(
-        &droopy[..],
-        &[Record::new(2, b"happy"), Record::new(3, b"happy"),]
-    );
+    assert_eq!(droopy.len(), 2);
+    assert_eq!(droopy[0].position, 2);
+    assert!(droopy[0].payload_equal(b"happy"));
+    assert_eq!(droopy[1].position, 3);
+    assert!(droopy[1].payload_equal(b"happy"));
     let droopy: Vec<Record> = mem_queues.range("droopy", 3..).unwrap().collect();
-    assert_eq!(&droopy[..], &[Record::new(3, b"happy")]);
+    assert_eq!(droopy.len(), 1);
+    assert_eq!(droopy[0].position, 3);
+    assert!(droopy[0].payload_equal(b"happy"));
 }
 
 #[test]
@@ -162,7 +170,9 @@ fn test_mem_queues_append_idempotence() {
         AppendError::Past
     ));
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
-    assert_eq!(&droopy, &[Record::new(0, b"hello")]);
+    assert_eq!(droopy.len(), 1);
+    assert_eq!(droopy[0].position, 0);
+    assert!(droopy[0].payload_equal(b"hello"));
 }
 
 #[test]
@@ -173,7 +183,9 @@ fn test_mem_queues_non_zero_first_el() {
         .append_record("droopy", &1.into(), 5, b"hello")
         .is_ok());
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
-    assert_eq!(droopy, &[Record::new(5, b"hello")]);
+    assert_eq!(droopy.len(), 1);
+    assert_eq!(droopy[0].position, 5);
+    assert!(droopy[0].payload_equal(b"hello"));
 }
 
 #[test]

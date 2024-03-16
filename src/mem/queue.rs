@@ -1,8 +1,4 @@
-use std::borrow::Cow;
 use std::ops::{Bound, RangeBounds};
-
-use bytes::buf::Buf;
-
 use crate::error::AppendError;
 use crate::mem::{Arena, RollingBuffer};
 use crate::{FileNumber, Record};
@@ -24,21 +20,19 @@ pub(crate) struct MemQueue {
     record_metas: Vec<RecordMeta>,
 }
 
-fn concatenate_buffers<'a>(mut buffers: impl Iterator<Item = &'a [u8]>) -> Cow<'a, [u8]> {
-    let Some(first) = buffers.next() else {
-        return Cow::Borrowed(&[]);
-    };
-    let Some(second) = buffers.next() else {
-        return Cow::Borrowed(first);
-    };
-    let mut concatenated_buffer: Vec<u8> = Vec::with_capacity(first.len() + second.len());
-    concatenated_buffer.extend_from_slice(first);
-    concatenated_buffer.extend_from_slice(second);
-    for buffer in buffers {
-        concatenated_buffer.extend_from_slice(buffer);
-    }
-    Cow::Owned(concatenated_buffer)
-}
+// fn concatenate_buffers<'a>(mut buf: impl Buf + 'a) -> Cow<'a, [u8]> {
+//     let first_chunk: &'a buf = buf.chunk();
+//     if buf.remaining() == first_chunk.len() {
+//         return Cow::Borrowed(first_chunk);
+//     }
+//     let mut concatenated_buffer: Vec<u8> = Vec::with_capacity(buf.remaining());
+//     while buf.has_remaining() {
+//         let chunk = buf.chunk();
+//         concatenated_buffer.extend_from_slice(chunk);
+//         buf.advance(chunk.len());
+//     }
+//     Cow::Owned(concatenated_buffer)
+// }
 
 impl MemQueue {
     pub fn with_next_position(next_position: u64) -> Self {
@@ -59,15 +53,14 @@ impl MemQueue {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record<'a>(&self, arena: &'a Arena) -> Option<Record<'a>> {
+    pub fn last_record<'a>(&'a self, arena: &'a Arena) -> Option<Record<'a>> {
         let record = self.record_metas.last()?;
-        let buf_iter = self
+        let record_payload = self
             .concatenated_records
-            .get_range(record.start_offset.., arena);
-        let payload = concatenate_buffers(buf_iter);
+            .get_range_buf(record.start_offset.., arena);
         Some(Record {
             position: record.position,
-            payload,
+            payload: record_payload,
         })
     }
 
@@ -156,10 +149,10 @@ impl MemQueue {
                 } else {
                     Bound::Unbounded
                 };
-                let payload_iter = self
+                let payload= self
                     .concatenated_records
-                    .get_range((start_bound, end_bound), arena);
-                let payload = concatenate_buffers(payload_iter);
+                    .get_range_buf((start_bound, end_bound), arena);
+                // let payload = concatenate_buffers(payload_buf);
                 Record { position, payload }
             })
     }
@@ -168,7 +161,7 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub fn truncate(&mut self, truncate_up_to_pos: u64, arena: &mut Arena) -> usize {
+    pub fn truncate_up_to_included(&mut self, truncate_up_to_pos: u64, arena: &mut Arena) -> usize {
         if self.start_position > truncate_up_to_pos {
             return 0;
         }
@@ -185,11 +178,11 @@ impl MemQueue {
 
         let start_offset_to_keep: usize = self.record_metas[first_record_to_keep].start_offset;
         self.record_metas.drain(..first_record_to_keep);
-        for record_meta in &mut self.record_metas {
-            record_meta.start_offset -= start_offset_to_keep;
-        }
+        // for record_meta in &mut self.record_metas {
+        //     record_meta.start_offset -= start_offset_to_keep;
+        // }
         self.concatenated_records
-            .truncate_to(start_offset_to_keep, arena);
+            .truncate_up_to_included(start_offset_to_keep, arena);
         self.start_position = truncate_up_to_pos + 1;
         first_record_to_keep
     }

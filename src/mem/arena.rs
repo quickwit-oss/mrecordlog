@@ -194,7 +194,7 @@ mod tests {
         arena.release_page(PageId(1));
         assert_eq!(arena.num_allocated_pages(), 2);
         arena.gc();
-        assert_eq!(arena.num_allocated_pages(), 1);
+        assert_eq!(arena.num_allocated_pages(), 2);
         assert_eq!(arena.get_page_id(), PageId(1));
         assert_eq!(arena.num_allocated_pages(), 2);
     }

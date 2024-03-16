@@ -44,7 +44,7 @@ impl RollingBuffer {
     }
 
     /// Truncate the buffer, dropping the first `truncate_len` bytes.
-    pub fn truncate_to(&mut self, truncate_len: usize, arena: &mut Arena) {
+    pub fn truncate_up_to_included(&mut self, truncate_len: usize, arena: &mut Arena) {
         if truncate_len >= self.range.len() {
             self.clear(arena);
             return;
@@ -52,9 +52,7 @@ impl RollingBuffer {
         let num_pages = num_pages_required((self.range.start + truncate_len)..self.range.end);
         assert!(num_pages <= self.page_ids.len());
         let num_pages_to_drop = self.page_ids.len() - num_pages;
-        let new_start = self.range.start + truncate_len - num_pages_to_drop * PAGE_SIZE;
-        let new_end = self.range.end - num_pages_to_drop * PAGE_SIZE;
-        self.range = new_start..new_end;
+        self.range.start = self.range.start + truncate_len;
         if num_pages_to_drop > 0 {
             for page_id in self.page_ids.drain(..(self.page_ids.len() - num_pages)) {
                 arena.release_page(page_id);
@@ -92,26 +90,35 @@ impl RollingBuffer {
         &'slf self,
         range: Range<usize>,
         arena: &'a Arena,
-    ) -> impl Buf + 'slf {
-        let start = (self.range.start + range.start).min(self.range.end);
-        let end = (self.range.start + range.end).clamp(start, self.range.end);
-        let len = end - start;
-        let skip_pages = start / PAGE_SIZE;
+    ) -> PagesBuf<'slf> {
+        let Range {start, end} = range;
+        assert!(start >= self.range.start);
+        assert!(end <= self.range.end);
+        if end <= start {
+            return PagesBuf {
+                arena,
+                start_offset: 0,
+                page_ids: &[],
+                remaining_len: 0,
+            };
+        }
+        let start_page_id = start / PAGE_SIZE;
+        let start_inner_page_id = self.range.start / PAGE_SIZE;
+        let skip_pages = start_page_id - start_inner_page_id;
         let start_offset = start % PAGE_SIZE;
         PagesBuf {
             arena,
             start_offset,
             page_ids: &self.page_ids[skip_pages..],
-            remaining_len: len,
+            remaining_len: end - start,
         }
-        .take(len)
     }
 
     pub fn get_range_buf<'slf, 'a: 'slf, R>(
         &'slf self,
         range_bounds: R,
         arena: &'a Arena,
-    ) -> impl Buf + 'slf
+    ) -> PagesBuf<'slf>
     where
         R: RangeBounds<usize> + 'static,
     {
@@ -123,69 +130,49 @@ impl RollingBuffer {
         let end = match range_bounds.end_bound() {
             Bound::Included(pos) => pos + 1,
             Bound::Excluded(pos) => *pos,
-            Bound::Unbounded => self.len(),
+            Bound::Unbounded => self.range.end
         };
         self.get_range_buf_aux(start..end, arena)
     }
-
-    pub fn get_range<'slf, 'a: 'slf, R>(
-        &'slf self,
-        range_bounds: R,
-        arena: &'a Arena,
-    ) -> impl Iterator<Item = &'a [u8]> + 'slf
-    where
-        R: RangeBounds<usize> + 'static,
-    {
-        let start = match range_bounds.start_bound() {
-            Bound::Included(pos) => *pos,
-            Bound::Excluded(pos) => pos + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match range_bounds.end_bound() {
-            Bound::Included(pos) => pos + 1,
-            Bound::Excluded(pos) => *pos,
-            Bound::Unbounded => self.len(),
-        };
-        self.get_range_aux(start..end, arena)
-    }
-
-    pub fn get_range_aux<'slf, 'a: 'slf>(
-        &'slf self,
-        range: Range<usize>,
-        arena: &'a Arena,
-    ) -> impl Iterator<Item = &'a [u8]> + 'slf {
-        let start = (self.range.start + range.start).min(self.range.end);
-        let end = (self.range.start + range.end).clamp(start, self.range.end);
-        let mut remaining_len = end - start;
-        let skip_pages = start / PAGE_SIZE;
-        let mut start_in_page = start % PAGE_SIZE;
-        self.page_ids[skip_pages..]
-            .iter()
-            .copied()
-            .map(move |page_id| {
-                let page = &arena.page(page_id)[start_in_page..];
-                start_in_page = 0;
-                let page_len = page.len().min(remaining_len);
-                remaining_len -= page_len;
-                &page[..page_len]
-            })
-            .take_while(|page| !page.is_empty())
-    }
 }
 
-struct PagesBuf<'a> {
+#[derive(Clone, Copy)]
+pub struct PagesBuf<'a> {
     arena: &'a Arena,
     page_ids: &'a [PageId],
     start_offset: usize,
     remaining_len: usize,
 }
 
-impl<'a> Buf for PagesBuf<'a> {
-    fn remaining(&self) -> usize {
-        self.remaining_len
+impl<'a> std::fmt::Debug for PagesBuf<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut buf = self.clone();
+        let mut vec = Vec::with_capacity(self.remaining_len);
+        while buf.has_remaining() {
+            let chunk = buf.chunk();
+            vec.extend_from_slice(chunk);
+            buf.advance(chunk.len());
+        }
+        vec.as_slice().fmt(f)
+    }
+}
+
+impl<'a> PagesBuf<'a> {
+    pub fn to_cow(mut self) -> std::borrow::Cow<'a, [u8]> {
+        if self.page_ids.len() <= 1 {
+            let chunk = self.chunk_with_lifetime();
+            return std::borrow::Cow::Borrowed(chunk);
+        }
+        let mut buf = Vec::with_capacity(self.remaining_len);
+        while self.has_remaining() {
+            let chunk = self.chunk_with_lifetime();
+            buf.extend_from_slice(chunk);
+            self.advance(chunk.len());
+        }
+        std::borrow::Cow::Owned(buf)
     }
 
-    fn chunk(&self) -> &[u8] {
+    fn chunk_with_lifetime(&self) -> &'a [u8] {
         let Some(first_page_id) = self.page_ids.first().copied() else {
             return &[];
         };
@@ -195,6 +182,26 @@ impl<'a> Buf for PagesBuf<'a> {
         } else {
             current_page
         }
+    }
+
+}
+
+impl<'a> Buf for PagesBuf<'a> {
+    fn remaining(&self) -> usize {
+        self.remaining_len
+    }
+
+    fn chunk(&self) -> &[u8] {
+        // let Some(first_page_id) = self.page_ids.first().copied() else {
+        //     return &[];
+        // };
+        // let current_page = &self.arena.page(first_page_id)[self.start_offset..];
+        // if current_page.len() > self.remaining_len {
+        //     &current_page[..self.remaining_len]
+        // } else {
+        //     current_page
+        // }
+        self.chunk_with_lifetime()
     }
 
     fn advance(&mut self, mut cnt: usize) {
@@ -235,16 +242,15 @@ mod tests {
         let mut arena = Arena::default();
         let text = b"hello happy tax payer";
         for truncate_len in 0..text.len() {
-            let expected = &text[truncate_len..];
             let mut rolling_buffer = RollingBuffer::new();
             rolling_buffer.extend_from_slice(&b"hello"[..], &mut arena);
             rolling_buffer.extend_from_slice(&b" happy"[..], &mut arena);
             rolling_buffer.extend_from_slice(&b" tax payer"[..], &mut arena);
-            rolling_buffer.truncate_to(truncate_len, &mut arena);
-            for start in 0..expected.len() {
-                for end in start..expected.len() {
+            rolling_buffer.truncate_up_to_included(truncate_len, &mut arena);
+            for start in truncate_len..text.len() {
+                for end in start..text.len() {
                     let bytes: Vec<u8> = to_vec(rolling_buffer.get_range_buf(start..end, &arena));
-                    assert_eq!(&expected[start..end], &bytes[..]);
+                    assert_eq!(&text[start..end], &bytes[..]);
                 }
             }
         }

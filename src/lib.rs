@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::sync::Arc;
 
 mod block_read_write;
@@ -12,22 +11,45 @@ mod record;
 mod recordlog;
 mod rolling;
 
+pub use mem::PagesBuf;
 pub use multi_record_log::{MultiRecordLog, SyncPolicy};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Record<'a> {
     pub position: u64,
-    pub payload: Cow<'a, [u8]>,
+    payload: PagesBuf<'a>,
 }
 
+
 impl<'a> Record<'a> {
-    pub fn new(position: u64, payload: &'a [u8]) -> Self {
-        Record {
-            position,
-            payload: Cow::Borrowed(payload),
+    #[cfg(test)]
+    pub fn payload_equal(&self, mut payload: &[u8]) -> bool {
+        use bytes::Buf;
+        let mut self_payload = self.payload;
+        if self_payload.remaining() != payload.len() {
+            return false;
         }
+        while self_payload.has_remaining() {
+            let chunk = self_payload.chunk();
+            let chunk_len = chunk.len();
+            if chunk != &payload[..chunk_len] {
+                return false;
+            }
+            self_payload.advance(chunk_len);
+            payload = &payload[chunk_len..];
+        }
+        true
     }
 }
+
+// impl<'a> Record<'a> {
+//     pub fn new(position: u64, payload: &'a [u8]) -> Self {
+//         Record {
+//             position,
+//             payload: Cow::Borrowed(payload),
+//         }
+//     }
+// }
 
 #[derive(Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct FileNumber {

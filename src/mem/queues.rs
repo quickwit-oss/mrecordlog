@@ -157,7 +157,7 @@ impl MemQueues {
     /// not do anything.
     pub fn truncate(&mut self, queue_id: &str, position: u64) -> Option<usize> {
         let queue = self.queues.get_mut(queue_id)?;
-        Some(queue.truncate(position, &mut self.arena))
+        Some(queue.truncate_up_to_included(position, &mut self.arena))
     }
 
     /// Return a tuple of (size, capacity) of memory used by the memqueues
