@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -357,16 +356,13 @@ fn test_multi_record() {
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         multi_record_log.truncate("queue", 0).unwrap();
-        assert_eq!(
-            multi_record_log
-                .range("queue", ..)
-                .unwrap()
-                .collect::<Vec<_>>(),
-            [Record {
-                position: 1,
-                payload: Cow::Borrowed(&b"22"[..])
-            }],
-        );
+        let records: Vec<Record> = multi_record_log
+            .range("queue", ..)
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].position, 1);
+        assert_eq!(records[0].payload.to_cow(), b"22".as_slice());
     }
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
@@ -379,13 +375,15 @@ fn test_multi_record() {
     }
     {
         let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
-        assert_eq!(
-            multi_record_log
-                .range("queue", ..)
-                .unwrap()
-                .collect::<Vec<_>>(),
-            [Record::new(1, b"22"), Record::new(2, b"hello"),]
-        );
+        let records = multi_record_log
+            .range("queue", ..)
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].position, 1);
+        assert_eq!(records[0].payload.to_cow(), b"22".as_slice());
+        assert_eq!(records[1].position, 2);
+        assert_eq!(records[1].payload.to_cow(), b"hello".as_slice());
     }
 }
 

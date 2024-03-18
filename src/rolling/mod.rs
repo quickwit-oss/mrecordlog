@@ -1,8 +1,9 @@
 mod directory;
-mod file_number;
+mod file_tracker;
 
 pub use self::directory::{Directory, RollingReader, RollingWriter};
-pub use self::file_number::{FileNumber, FileTracker};
+pub use self::file_tracker::FileTracker;
+pub use crate::FileNumber;
 
 const FRAME_NUM_BYTES: usize = 1 << 15;
 

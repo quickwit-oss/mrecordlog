@@ -4,14 +4,15 @@ use std::ops::RangeBounds;
 use tracing::{info, warn};
 
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
-use crate::mem::MemQueue;
-use crate::rolling::FileNumber;
-use crate::Record;
+use crate::mem::{Arena, MemQueue};
+use crate::{FileNumber, Record};
 
 #[derive(Default)]
 pub(crate) struct MemQueues {
     queues: HashMap<String, MemQueue>,
+    pub(crate) arena: Arena,
 }
+
 impl MemQueues {
     /// The file number argument is here unused. Its point is just to make sure we
     /// flushed the file before updating the in memory queue.
@@ -52,7 +53,7 @@ impl MemQueues {
         R: RangeBounds<u64> + 'static,
     {
         if let Some(queue) = self.queues.get(queue) {
-            Ok(queue.range(range))
+            Ok(queue.range(range, &self.arena))
         } else {
             Err(MissingQueue(queue.to_string()))
         }
@@ -66,12 +67,17 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub(crate) fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue, MissingQueue> {
+    pub(crate) fn get_queue_mut(
+        &mut self,
+        queue: &str,
+    ) -> Result<(&mut MemQueue, &mut Arena), MissingQueue> {
         // We do not rely on `entry` in order to avoid
         // the allocation.
-        self.queues
+        let queue = self
+            .queues
             .get_mut(queue)
-            .ok_or_else(|| MissingQueue(queue.to_string()))
+            .ok_or_else(|| MissingQueue(queue.to_string()))?;
+        Ok((queue, &mut self.arena))
     }
 
     pub fn append_record(
@@ -81,8 +87,11 @@ impl MemQueues {
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
-        self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)
+        let queue = self
+            .queues
+            .get_mut(queue)
+            .ok_or_else(|| MissingQueue(queue.to_string()))?;
+        queue.append_record(file_number, target_position, payload, &mut self.arena)
     }
 
     pub fn contains_queue(&self, queue: &str) -> bool {
@@ -134,7 +143,7 @@ impl MemQueues {
 
     /// Returns the last record stored in the queue.
     pub fn last_record(&self, queue: &str) -> Result<Option<Record>, MissingQueue> {
-        Ok(self.get_queue(queue)?.last_record())
+        Ok(self.get_queue(queue)?.last_record(&self.arena))
     }
 
     pub fn next_position(&self, queue: &str) -> Result<u64, MissingQueue> {
@@ -146,12 +155,13 @@ impl MemQueues {
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
-        if let Ok(queue) = self.get_queue_mut(queue) {
-            Some(queue.truncate(position))
-        } else {
-            None
-        }
+    pub fn truncate(&mut self, queue_id: &str, position: u64) -> Option<usize> {
+        let queue = self.queues.get_mut(queue_id)?;
+        Some(queue.truncate_up_to_included(position, &mut self.arena))
+    }
+
+    pub fn roll_and_gc(&mut self) {
+        self.arena.roll_and_gc();
     }
 
     /// Return a tuple of (size, capacity) of memory used by the memqueues
@@ -166,7 +176,8 @@ impl MemQueues {
             .queues
             .iter()
             .map(|(name, queue)| name.capacity() + queue.capacity())
-            .sum();
+            .sum::<usize>()
+            + self.arena.unused_capacity();
 
         (size, capacity)
     }

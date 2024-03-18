@@ -9,7 +9,7 @@ fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Ve
     let mut next_pos = u64::default();
     for Record { position, payload } in multi_record_log.range(queue, next_pos..).unwrap() {
         assert_eq!(position, next_pos);
-        records.push(payload);
+        records.push(payload.to_cow());
         next_pos += 1;
     }
     records
@@ -235,7 +235,7 @@ fn test_multi_insert_truncate() {
             &multi_record_log
                 .range("queue", ..)
                 .unwrap()
-                .map(|record| record.payload)
+                .map(|record| record.payload.to_cow())
                 .collect::<Vec<_>>(),
             &[b"2".as_slice(), b"3".as_slice(), b"4".as_slice()]
         )
@@ -243,12 +243,11 @@ fn test_multi_insert_truncate() {
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
         multi_record_log.truncate("queue", 1).unwrap();
-
         assert_eq!(
             &multi_record_log
                 .range("queue", ..)
                 .unwrap()
-                .map(|record| record.payload)
+                .map(|record| record.payload.to_cow())
                 .collect::<Vec<_>>(),
             &[b"3".as_slice(), b"4".as_slice()]
         )
@@ -259,7 +258,7 @@ fn test_multi_insert_truncate() {
             &multi_record_log
                 .range("queue", ..)
                 .unwrap()
-                .map(|record| record.payload)
+                .map(|record| record.payload.to_cow())
                 .collect::<Vec<_>>(),
             &[b"3".as_slice(), b"4".as_slice()]
         )
@@ -269,52 +268,56 @@ fn test_multi_insert_truncate() {
 #[test]
 fn test_truncate_range_correct_pos() {
     let tempdir = tempfile::tempdir().unwrap();
+    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+    multi_record_log.create_queue("queue").unwrap();
+    assert_eq!(
+        multi_record_log
+            .append_record("queue", None, &b"1"[..])
+            .unwrap(),
+        Some(0)
+    );
+    assert_eq!(
+        multi_record_log
+            .append_record("queue", None, &b"2"[..])
+            .unwrap(),
+        Some(1)
+    );
+    multi_record_log.truncate("queue", 1).unwrap();
+    assert_eq!(
+        multi_record_log
+            .append_record("queue", None, &b"3"[..])
+            .unwrap(),
+        Some(2)
+    );
     {
-        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
-        multi_record_log.create_queue("queue").unwrap();
-        assert_eq!(
-            multi_record_log
-                .append_record("queue", None, &b"1"[..])
-                .unwrap(),
-            Some(0)
-        );
-        assert_eq!(
-            multi_record_log
-                .append_record("queue", None, &b"2"[..])
-                .unwrap(),
-            Some(1)
-        );
-        multi_record_log.truncate("queue", 1).unwrap();
-        assert_eq!(
-            multi_record_log
-                .append_record("queue", None, &b"3"[..])
-                .unwrap(),
-            Some(2)
-        );
-        assert_eq!(
-            multi_record_log
-                .range("queue", ..)
-                .unwrap()
-                .collect::<Vec<_>>(),
-            &[Record::new(2u64, b"3")]
-        );
+        let records = multi_record_log
+            .range("queue", ..)
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].position, 2);
+        assert_eq!(records[0].payload.to_cow(), b"3".as_slice());
+    }
 
-        assert_eq!(
-            multi_record_log
-                .range("queue", 2..)
-                .unwrap()
-                .collect::<Vec<_>>(),
-            &[Record::new(2, b"3")]
-        );
+    {
+        let records = multi_record_log
+            .range("queue", 2..)
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].position, 2);
+        assert_eq!(records[0].payload.to_cow(), b"3".as_slice());
+    }
 
+    {
         use std::ops::Bound;
-        assert_eq!(
-            multi_record_log
-                .range("queue", (Bound::Excluded(1), Bound::Unbounded))
-                .unwrap()
-                .collect::<Vec<_>>(),
-            &[Record::new(2, b"3")]
-        );
+        let records = multi_record_log
+            .range("queue", (Bound::Excluded(1), Bound::Unbounded))
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].position, 2);
+        assert_eq!(records[0].payload.to_cow(), b"3".as_slice());
     }
 }
 
@@ -382,7 +385,7 @@ fn test_open_corrupted() {
 
         let mut count = 0;
         for Record { position, payload } in multi_record_log.range("queue", ..).unwrap() {
-            assert_eq!(payload, format!("{position:08}").as_bytes());
+            assert_eq!(payload.to_cow(), format!("{position:08}").as_bytes());
             count += 1;
         }
         assert!(count > 4096);
@@ -448,7 +451,7 @@ fn test_last_record() {
 
     let Record { position, payload } = multi_record_log.last_record("queue1").unwrap().unwrap();
     assert_eq!(position, 0);
-    assert_eq!(payload, &b"hello"[..]);
+    assert_eq!(payload.to_cow(), &b"hello"[..]);
 
     multi_record_log.truncate("queue1", 0).unwrap();
 
