@@ -112,7 +112,7 @@ impl MultiRecordLog {
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record)?;
-        self.persist_and_maybe_fsync()?;
+        self.persist(PersistAction::FlushAndFsync)?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
@@ -124,7 +124,7 @@ impl MultiRecordLog {
         self.record_log_writer.write_record(record)?;
         self.in_mem_queues.delete_queue(queue)?;
         self.run_gc_if_necessary()?;
-        self.persist_and_maybe_fsync()?;
+        self.persist(PersistAction::FlushAndFsync)?;
         Ok(())
     }
 
@@ -216,9 +216,9 @@ impl MultiRecordLog {
             has_empty_queues = true
         }
         if has_empty_queues {
-            // We need to sync here! We are remove files from the FS
+            // We need to fsync here! We are remove files from the FS
             // so we need to make sure our empty queue positions are properly persisted.
-            self.persist_and_maybe_fsync()?;
+            self.persist(PersistAction::FlushAndFsync)?;
         }
         Ok(())
     }
@@ -284,20 +284,16 @@ impl MultiRecordLog {
 
     /// Flush if the policy says it should be done
     fn persist_on_policy(&mut self) -> io::Result<()> {
-        if self.next_persist.should_persist() {
-            self.persist_and_maybe_fsync()?;
+        if let Some(persist_action) = self.next_persist.should_persist() {
+            self.persist(persist_action)?;
             self.next_persist.update_persisted();
         }
         Ok(())
     }
 
-    fn persist_and_maybe_fsync(&mut self) -> io::Result<()> {
-        self.persist(self.next_persist.action().is_fsync())
-    }
-
     /// Flush and optionnally fsync data
-    pub fn persist(&mut self, fsync: bool) -> io::Result<()> {
-        self.record_log_writer.flush(fsync)
+    pub fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
+        self.record_log_writer.persist(persist_action)
     }
 
     /// Returns the position of the last record appended to the queue.

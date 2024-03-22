@@ -6,7 +6,7 @@ use tracing::info;
 
 use super::{FileNumber, FileTracker};
 use crate::rolling::{FILE_NUM_BYTES, FRAME_NUM_BYTES};
-use crate::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
+use crate::{BlockRead, BlockWrite, PersistAction, BLOCK_NUM_BYTES};
 
 pub struct Directory {
     dir: PathBuf,
@@ -267,13 +267,17 @@ impl BlockWrite for RollingWriter {
         Ok(())
     }
 
-    fn flush(&mut self, fsync: bool) -> io::Result<()> {
-        if fsync {
-            self.file.flush()?;
-            self.file.get_ref().sync_data()?;
-            self.directory.sync_directory()
-        } else {
-            self.file.flush()
+    fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
+        match persist_action {
+            PersistAction::FlushAndFsync => {
+                self.file.flush()?;
+                self.file.get_ref().sync_data()?;
+                self.directory.sync_directory()
+            }
+            PersistAction::Flush => {
+                // This will flush the buffer of the BufWriter to the underlying OS.
+                self.file.flush()
+            }
         }
     }
 

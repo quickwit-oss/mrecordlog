@@ -1,5 +1,7 @@
 use std::io;
 
+use crate::PersistAction;
+
 pub const BLOCK_NUM_BYTES: usize = 32_768;
 
 pub trait BlockRead {
@@ -25,8 +27,8 @@ pub trait BlockRead {
 pub trait BlockWrite {
     /// Must panic if buf is larger than `num_bytes_remaining_in_block`.
     fn write(&mut self, buf: &[u8]) -> io::Result<()>;
-    /// The semantics of flush may depend on the implementation.
-    fn flush(&mut self, fsync: bool) -> io::Result<()>;
+    /// Persist the data following the `persist_action`.
+    fn persist(&mut self, persist_action: PersistAction) -> io::Result<()>;
     /// Number of bytes that can be added in the block.
     fn num_bytes_remaining_in_block(&self) -> usize;
 }
@@ -90,7 +92,7 @@ impl BlockWrite for VecBlockWriter {
         Ok(())
     }
 
-    fn flush(&mut self, _fsync: bool) -> io::Result<()> {
+    fn persist(&mut self, _persist_action: PersistAction) -> io::Result<()> {
         Ok(())
     }
 

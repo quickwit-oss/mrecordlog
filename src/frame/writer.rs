@@ -2,7 +2,7 @@ use std::io;
 
 use crate::frame::{FrameType, Header, HEADER_LEN};
 use crate::rolling::{Directory, RollingWriter};
-use crate::{BlockWrite, BLOCK_NUM_BYTES};
+use crate::{BlockWrite, PersistAction, BLOCK_NUM_BYTES};
 
 pub struct FrameWriter<W> {
     wrt: W,
@@ -41,8 +41,8 @@ impl<W: BlockWrite + Unpin> FrameWriter<W> {
     /// When writing to a file, this performs a syscall and
     /// the OS will be in charge of eventually writing the data
     /// to disk, but this is not sufficient to ensure durability.
-    pub fn flush(&mut self, fsync: bool) -> io::Result<()> {
-        self.wrt.flush(fsync)
+    pub fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
+        self.wrt.persist(persist_action)
     }
 
     /// Returns the maximum amount of bytes that can be written.

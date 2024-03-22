@@ -3,7 +3,7 @@ use std::io;
 use crate::block_read_write::VecBlockWriter;
 use crate::frame::{FrameType, FrameWriter};
 use crate::rolling::{Directory, FileNumber, RollingWriter};
-use crate::{BlockWrite, Serializable};
+use crate::{BlockWrite, PersistAction, Serializable};
 
 pub struct RecordWriter<W> {
     frame_writer: FrameWriter<W>,
@@ -67,10 +67,9 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
         Ok(())
     }
 
-    /// Flushes and sync the data to disk.
-    pub fn flush(&mut self, fsync: bool) -> io::Result<()> {
-        // Empty the application buffer and optionally fsyncs
-        self.frame_writer.flush(fsync)
+    /// Persist the data to disk, according to the persist_action.
+    pub fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
+        self.frame_writer.persist(persist_action)
     }
 
     pub fn get_underlying_wrt(&self) -> &W {

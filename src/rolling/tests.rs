@@ -1,5 +1,5 @@
 use super::*;
-use crate::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
+use crate::{BlockRead, BlockWrite, PersistAction, BLOCK_NUM_BYTES};
 
 #[test]
 fn test_read_write() {
@@ -15,7 +15,7 @@ fn test_read_write() {
         writer.write(&buffer[..]).unwrap();
         buffer.fill(2u8);
         writer.write(&buffer[..]).unwrap();
-        writer.flush(false).unwrap();
+        writer.persist(PersistAction::Flush).unwrap();
     }
     let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).unwrap();
     assert!(rolling_reader.block().iter().all(|&b| b == 0));
@@ -36,7 +36,7 @@ fn test_read_write_2nd_block() {
             buffer.fill(i);
             writer.write(&buffer[..]).unwrap();
         }
-        writer.flush(false).unwrap();
+        writer.persist(PersistAction::Flush).unwrap();
     }
     {
         let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).unwrap();
@@ -50,7 +50,7 @@ fn test_read_write_2nd_block() {
             buffer.fill(i);
             writer.write(&buffer[..]).unwrap();
         }
-        writer.flush(false).unwrap();
+        writer.persist(PersistAction::Flush).unwrap();
     }
     {
         let mut rolling_reader: RollingReader = RollingReader::open(tmp_dir.path()).unwrap();
@@ -76,7 +76,7 @@ fn test_read_truncated() {
             buffer.fill(i as u8);
             writer.write(&buffer[..]).unwrap();
         }
-        writer.flush(false).unwrap();
+        writer.persist(PersistAction::Flush).unwrap();
         let file_ids = writer.list_file_numbers();
         let middle_file = file_ids[1];
         let filepath =
