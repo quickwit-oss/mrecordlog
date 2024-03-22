@@ -23,7 +23,7 @@ pub struct MultiRecordLog {
 }
 
 impl MultiRecordLog {
-    /// Open the multi record log, flushing after each operation, bit not fsyncing.
+    /// Open the multi record log, flushing after each operation, but not fsyncing.
     pub fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
         Self::open_with_prefs(directory_path, PersistPolicy::Always(PersistAction::Flush))
     }
@@ -112,7 +112,7 @@ impl MultiRecordLog {
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record)?;
-        self.persist(PersistAction::FlushAndFsync)?;
+        self.persist_on_policy()?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
