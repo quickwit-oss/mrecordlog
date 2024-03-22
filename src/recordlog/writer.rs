@@ -69,7 +69,7 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
 
     /// Flushes and sync the data to disk.
     pub fn flush(&mut self, fsync: bool) -> io::Result<()> {
-        // Empty the application buffer.
+        // Empty the application buffer and optionally fsyncs
         self.frame_writer.flush(fsync)
     }
 

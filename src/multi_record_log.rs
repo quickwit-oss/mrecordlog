@@ -1,7 +1,6 @@
 use std::io;
 use std::ops::RangeBounds;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use bytes::Buf;
 use tracing::{debug, event_enabled, info, warn, Level};
@@ -13,7 +12,7 @@ use crate::mem::MemQueue;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
-use crate::{mem, Record, ResourceUsage};
+use crate::{mem, PersistAction, PersistPolicy, PersistState, Record, ResourceUsage};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -21,104 +20,6 @@ pub struct MultiRecordLog {
     next_persist: PersistState,
     // A simple buffer we reuse to avoid allocation.
     multi_record_spare_buffer: Vec<u8>,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum PersistAction {
-    /// The buffer will be flushed to the OS, but not necessarily to the disk.
-    Flush,
-    /// The buffer will be flushed to the OS, and the OS will be asked to flush
-    /// it to the disk.
-    FlushAndFsync,
-}
-
-impl PersistAction {
-    fn is_fsync(self) -> bool {
-        self == PersistAction::FlushAndFsync
-    }
-}
-
-/// We have two type of operations on the mrecordlog.
-///
-/// Critical records are relatively rare and really need to be persisted:
-/// - RecordPosition { queue: &'a str, position: u64 },
-/// - DeleteQueue.
-///
-/// For these operations, we want to always flush and fsync.
-///
-/// On the other hand,
-/// - Truncate
-/// - AppendRecords
-/// are considered are more frequent and one might want to sacrifice
-/// persistence guarantees for performance.
-///
-/// The `PersistPolicy` defines the trade-off applied for the second kind of
-/// operations.
-#[derive(Clone, Debug)]
-pub enum PersistPolicy {
-    /// Only persist data when asked for, and when critical records are written
-    DoNothing(PersistAction),
-    /// Pesiste data once every interval, and when critical records are written
-    OnDelay {
-        interval: Duration,
-        action: PersistAction,
-    },
-    /// Persist data after each action
-    Always(PersistAction),
-}
-
-#[derive(Debug)]
-enum PersistState {
-    OnAppend(PersistAction),
-    OnDelay {
-        next_persist: Instant,
-        interval: Duration,
-        action: PersistAction,
-    },
-    OnRequest(PersistAction),
-}
-
-impl PersistState {
-    fn should_persist(&self) -> bool {
-        match self {
-            PersistState::OnAppend(_) => true,
-            PersistState::OnDelay { next_persist, .. } => *next_persist < Instant::now(),
-            PersistState::OnRequest(_) => false,
-        }
-    }
-
-    fn update_persisted(&mut self) {
-        match self {
-            PersistState::OnAppend(_) | PersistState::OnRequest(_) => (),
-            PersistState::OnDelay {
-                ref mut next_persist,
-                interval,
-                ..
-            } => *next_persist = Instant::now() + *interval,
-        }
-    }
-
-    fn action(&self) -> PersistAction {
-        match self {
-            PersistState::OnAppend(action) => *action,
-            PersistState::OnDelay { action, .. } => *action,
-            PersistState::OnRequest(action) => *action,
-        }
-    }
-}
-
-impl From<PersistPolicy> for PersistState {
-    fn from(val: PersistPolicy) -> PersistState {
-        match val {
-            PersistPolicy::Always(action) => PersistState::OnAppend(action),
-            PersistPolicy::OnDelay { interval, action } => PersistState::OnDelay {
-                next_persist: Instant::now() + interval,
-                interval,
-                action,
-            },
-            PersistPolicy::DoNothing(action) => PersistState::OnRequest(action),
-        }
-    }
 }
 
 impl MultiRecordLog {
