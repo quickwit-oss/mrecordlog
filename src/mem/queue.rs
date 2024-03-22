@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::ops::{Bound, RangeBounds};
 
 use crate::error::AppendError;
+use crate::mem::QueueSummary;
 use crate::rolling::FileNumber;
 use crate::Record;
 
@@ -114,8 +115,29 @@ impl MemQueue {
         }
     }
 
+    pub fn summary(&self) -> QueueSummary {
+        QueueSummary {
+            start: self.start_position(),
+            end: self.last_position(),
+            file_number: self.first_file_number(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.record_metas.is_empty()
+    }
+
+    pub(crate) fn first_file_number(&self) -> Option<u64> {
+        let file_number: &FileNumber = self
+            .record_metas
+            .iter()
+            .filter_map(|record_meta| record_meta.file_number.as_ref())
+            .next()?;
+        Some(file_number.file_number())
+    }
+
+    pub(crate) fn start_position(&self) -> u64 {
+        self.start_position
     }
 
     /// Returns the position of the last record appended to the queue.
