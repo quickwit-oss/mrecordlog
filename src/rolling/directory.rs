@@ -6,7 +6,7 @@ use tracing::info;
 
 use super::{FileNumber, FileTracker};
 use crate::rolling::{FILE_NUM_BYTES, FRAME_NUM_BYTES};
-use crate::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
+use crate::{BlockRead, BlockWrite, PersistAction, BLOCK_NUM_BYTES};
 
 pub struct Directory {
     dir: PathBuf,
@@ -102,6 +102,16 @@ impl Directory {
         let mut file = OpenOptions::new().read(true).write(true).open(filepath)?;
         file.seek(SeekFrom::Start(0u64))?;
         Ok(file)
+    }
+
+    fn sync_directory(&self) -> io::Result<()> {
+        let mut open_opts = OpenOptions::new();
+        // Linux needs read to be set, otherwise returns EINVAL
+        // write must not be set, or it fails with EISDIR
+        open_opts.read(true);
+        let fd = open_opts.open(&self.dir)?;
+        fd.sync_data()?;
+        Ok(())
     }
 }
 
@@ -235,6 +245,8 @@ impl BlockWrite for RollingWriter {
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.offset + buf.len() > FILE_NUM_BYTES {
             self.file.flush()?;
+            self.file.get_ref().sync_data()?;
+            self.directory.sync_directory()?;
 
             let (file_number, file) =
                 if let Some(next_file_number) = self.directory.files.next(&self.file_number) {
@@ -255,8 +267,18 @@ impl BlockWrite for RollingWriter {
         Ok(())
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+    fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
+        match persist_action {
+            PersistAction::FlushAndFsync => {
+                self.file.flush()?;
+                self.file.get_ref().sync_data()?;
+                self.directory.sync_directory()
+            }
+            PersistAction::Flush => {
+                // This will flush the buffer of the BufWriter to the underlying OS.
+                self.file.flush()
+            }
+        }
     }
 
     fn num_bytes_remaining_in_block(&self) -> usize {

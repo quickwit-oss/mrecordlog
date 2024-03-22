@@ -7,11 +7,14 @@ pub mod error;
 mod frame;
 mod mem;
 mod multi_record_log;
+mod persist_policy;
 mod record;
 mod recordlog;
 mod rolling;
 
-pub use multi_record_log::{MultiRecordLog, SyncPolicy};
+pub use multi_record_log::MultiRecordLog;
+pub(crate) use persist_policy::PersistState;
+pub use persist_policy::{PersistAction, PersistPolicy};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Record<'a> {

@@ -3,7 +3,7 @@ use std::io;
 use crate::block_read_write::{ArrayReader, VecBlockWriter};
 use crate::frame::header::{FrameType, HEADER_LEN};
 use crate::frame::{FrameReader, FrameWriter, ReadFrameError};
-use crate::BLOCK_NUM_BYTES;
+use crate::{PersistAction, BLOCK_NUM_BYTES};
 
 #[test]
 fn test_frame_simple() {
@@ -19,7 +19,7 @@ fn test_frame_simple() {
         frame_writer
             .write_frame(FrameType::Last, &b"fgh"[..])
             .unwrap();
-        frame_writer.flush().unwrap();
+        frame_writer.persist(PersistAction::Flush).unwrap();
         frame_writer.into_writer()
     };
     let buffer: Vec<u8> = block_writer.into();
@@ -45,9 +45,9 @@ fn test_frame_corruption_in_payload() -> io::Result<()> {
     let mut buf: Vec<u8> = {
         let mut frame_writer = FrameWriter::create(VecBlockWriter::default());
         frame_writer.write_frame(FrameType::First, &b"abc"[..])?;
-        frame_writer.flush()?;
+        frame_writer.persist(PersistAction::Flush)?;
         frame_writer.write_frame(FrameType::Middle, &b"de"[..])?;
-        frame_writer.flush()?;
+        frame_writer.persist(PersistAction::Flush)?;
         frame_writer.into_writer().into()
     };
     buf[8] = 0u8;
@@ -68,7 +68,7 @@ fn repeat_empty_frame_util(repeat: usize) -> Vec<u8> {
     for _ in 0..repeat {
         frame_writer.write_frame(FrameType::Full, &b""[..]).unwrap();
     }
-    frame_writer.flush().unwrap();
+    frame_writer.persist(PersistAction::Flush).unwrap();
     frame_writer.into_writer().into()
 }
 
