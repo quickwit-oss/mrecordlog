@@ -4,7 +4,7 @@ use std::ops::RangeBounds;
 use tracing::{info, warn};
 
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
-use crate::mem::MemQueue;
+use crate::mem::{MemQueue, QueuesSummary};
 use crate::rolling::FileNumber;
 use crate::Record;
 
@@ -21,6 +21,14 @@ impl MemQueues {
         }
         self.queues.insert(queue.to_string(), MemQueue::default());
         Ok(())
+    }
+
+    pub fn summary(&self) -> QueuesSummary {
+        let mut summary = QueuesSummary::default();
+        for (queue_name, queue) in &self.queues {
+            summary.queues.insert(queue_name.clone(), queue.summary());
+        }
+        summary
     }
 
     pub fn delete_queue(&mut self, queue: &str) -> Result<(), MissingQueue> {

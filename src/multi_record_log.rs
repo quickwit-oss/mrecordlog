@@ -9,7 +9,7 @@ use tracing::{debug, event_enabled, info, warn, Level};
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
-use crate::mem::MemQueue;
+use crate::mem::{MemQueue, QueuesSummary};
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
@@ -79,6 +79,10 @@ impl MultiRecordLog {
         Self::open_with_prefs(directory_path, SyncPolicy::OnAppend)
     }
 
+    pub fn summary(&self) -> QueuesSummary {
+        self.in_mem_queues.summary()
+    }
+
     /// Open the multi record log, syncing following the provided policy.
     pub fn open_with_prefs(
         directory_path: &Path,
@@ -91,7 +95,7 @@ impl MultiRecordLog {
         debug!("loading wal");
         loop {
             let file_number = record_reader.read().current_file().clone();
-            let Ok(record) = record_reader.read_record() else {
+            let Ok(record) = record_reader.read_record::<MultiPlexedRecord>() else {
                 warn!("Detected corrupted record: some data may have been lost");
                 continue;
             };

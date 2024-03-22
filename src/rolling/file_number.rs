@@ -118,7 +118,6 @@ impl FileNumber {
         format!("wal-{:020}", self.file_number)
     }
 
-    #[cfg(test)]
     pub fn file_number(&self) -> u64 {
         *self.file_number
     }

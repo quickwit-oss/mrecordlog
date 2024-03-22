@@ -6,7 +6,7 @@ use tracing::error;
 use crate::error::MultiRecordCorruption;
 use crate::Serializable;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub(crate) enum MultiPlexedRecord<'a> {
     /// Adds multiple records to a specific queue.
     AppendRecords {
@@ -25,6 +25,50 @@ pub(crate) enum MultiPlexedRecord<'a> {
         queue: &'a str,
         position: u64, //< not useful tbh
     },
+}
+
+impl<'a> std::fmt::Debug for MultiPlexedRecord<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::AppendRecords {
+                queue,
+                position,
+                records,
+            } => f
+                .debug_struct("AppendRecords")
+                .field("queue", queue)
+                .field("position", position)
+                .field("records_len", &records.count())
+                .finish(),
+            Self::Truncate { queue, position } => f
+                .debug_struct("Truncate")
+                .field("queue", queue)
+                .field("position", position)
+                .finish(),
+            Self::RecordPosition { queue, position } => f
+                .debug_struct("RecordPosition")
+                .field("queue", queue)
+                .field("position", position)
+                .finish(),
+            Self::DeleteQueue { queue, position } => f
+                .debug_struct("DeleteQueue")
+                .field("queue", queue)
+                .field("position", position)
+                .finish(),
+        }
+    }
+}
+
+impl<'a> MultiPlexedRecord<'a> {
+    #[allow(dead_code)]
+    pub fn queue_id(&self) -> &'a str {
+        match self {
+            Self::AppendRecords { queue, .. } => queue,
+            Self::Truncate { queue, .. } => queue,
+            Self::RecordPosition { queue, .. } => queue,
+            Self::DeleteQueue { queue, .. } => queue,
+        }
+    }
 }
 
 #[repr(u8)]
