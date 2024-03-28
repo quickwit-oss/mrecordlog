@@ -116,7 +116,7 @@ impl MultiRecordLog {
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
         self.record_log_writer.write_record(record)?;
-        self.persist_on_policy()?;
+        self.persist(PersistAction::FlushAndFsync)?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
     }
