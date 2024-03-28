@@ -12,6 +12,7 @@ mod record;
 mod recordlog;
 mod rolling;
 
+pub use mem::{QueueSummary, QueuesSummary};
 pub use multi_record_log::MultiRecordLog;
 pub(crate) use persist_policy::PersistState;
 pub use persist_policy::{PersistAction, PersistPolicy};
