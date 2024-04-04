@@ -8,3 +8,7 @@ fmt:
 fix: fmt
 	@echo "Running cargo clippy --fix"
 	cargo clippy --fix --all-features --allow-dirty --allow-staged
+
+push:
+	docker buildx build --platform linux/amd64  -t quickwit/mrecordlog:0.1 . --push
+

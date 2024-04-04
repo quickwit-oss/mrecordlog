@@ -76,6 +76,14 @@ impl From<MissingQueue> for AppendError {
 #[derive(Debug)]
 pub struct MissingQueue(pub String);
 
+impl std::fmt::Display for MissingQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Missing queue: {}", self.0)
+    }
+}
+
+impl std::error::Error for MissingQueue {}
+
 #[derive(Error, Debug)]
 pub enum ReadRecordError {
     #[error("Io error: {0}")]

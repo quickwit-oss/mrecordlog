@@ -1,0 +1,15 @@
+[package]
+name = "mrecordlog_cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mrecordlog = { path = "../" }
+anyhow = "*"
+structopt = "0.3"
+
+[[bin]]
+name = "mrecordlog"
+path = "src/main.rs"

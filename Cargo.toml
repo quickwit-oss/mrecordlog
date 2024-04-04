@@ -1,3 +1,4 @@
+workspace = { members = ["mrecordlog_cli"] }
 [package]
 name = "mrecordlog"
 version = "0.4.0"
