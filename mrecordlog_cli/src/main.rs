@@ -6,13 +6,12 @@ use structopt::StructOpt;
 #[derive(Debug, StructOpt)]
 enum Command {
     Summary {
-        #[structopt(short)]
+        #[structopt(short = "f", default_value = "./wal")]
         wal_path: PathBuf,
     },
     Read {
-        #[structopt(short)]
+        #[structopt(short = "f", default_value = "./wal")]
         wal_path: PathBuf,
-        #[structopt(short)]
         queue_name: String,
     },
 }
