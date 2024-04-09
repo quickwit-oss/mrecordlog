@@ -11,7 +11,7 @@ pub enum PersistAction {
 
 impl PersistAction {
     pub fn is_fsync(self) -> bool {
-        self == PersistAction::FlushAndFsync
+        false
     }
 }
 

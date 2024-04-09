@@ -268,16 +268,13 @@ impl BlockWrite for RollingWriter {
     }
 
     fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
-        match persist_action {
-            PersistAction::FlushAndFsync => {
-                self.file.flush()?;
-                self.file.get_ref().sync_data()?;
-                self.directory.sync_directory()
-            }
-            PersistAction::Flush => {
-                // This will flush the buffer of the BufWriter to the underlying OS.
-                self.file.flush()
-            }
+        if persist_action.is_fsync() {
+            self.file.flush()?;
+            self.file.get_ref().sync_data()?;
+            self.directory.sync_directory()
+        } else {
+            // This will flush the buffer of the BufWriter to the underlying OS.
+            self.file.flush()
         }
     }
 
