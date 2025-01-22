@@ -11,7 +11,6 @@ env:
 
 jobs:
   check:
-
     runs-on: ubuntu-latest
 
     steps:
@@ -42,9 +41,7 @@ jobs:
         args: --tests
 
   test:
-
     runs-on: ubuntu-latest
-
     name: test
 
     steps:
@@ -66,3 +63,22 @@ jobs:
     - name: Run doctests
       run: cargo +stable test --doc --verbose
 
+  thirdparty-license:
+    name: Check Datadog third-party license file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install dd-rust-license-tool
+        run: dd-rust-license-tool --help || cargo install dd-rust-license-tool
+
+      - name: Check Datadog third-party license file
+        run: dd-rust-license-tool check
