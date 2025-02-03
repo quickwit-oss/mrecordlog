@@ -7,10 +7,6 @@ updates:
     # Check for updates once a week
     schedule:
       interval: "weekly"
-    # Specify labels for pull requests
-    labels:
-      - "dependencies"
-      - "rust"
     # Allow up to 10 open pull requests
     open-pull-requests-limit: 10
     # Create pull requests for patch and minor updates
