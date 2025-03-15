@@ -114,15 +114,15 @@ impl PropTestEnv {
         let state = self.state.get_mut(queue).unwrap();
         if state.0.contains(&pos) {
             state.0.start = pos + 1;
-            state.1 -= self.record_log.truncate(queue, pos).unwrap() as u64;
+            state.1 -= self.record_log.truncate(queue, ..=pos).unwrap() as u64;
         } else if pos >= state.0.end {
             // advance the queue to the position.
             state.0 = (pos + 1)..(pos + 1);
             state.1 = 0;
-            self.record_log.truncate(queue, pos).unwrap();
+            self.record_log.truncate(queue, ..=pos).unwrap();
         } else {
             // should be a no-op
-            self.record_log.truncate(queue, pos).unwrap();
+            self.record_log.truncate(queue, ..=pos).unwrap();
         }
     }
 }
@@ -292,7 +292,8 @@ proptest::proptest! {
             },
             1 => MultiPlexedRecord::Truncate {
                 queue: &queue,
-                position},
+                truncate_range: ..=position
+            },
             2 => MultiPlexedRecord::RecordPosition {queue: &queue, position},
             3 => MultiPlexedRecord::DeleteQueue {queue: &queue, position},
             4.. => unreachable!(),
@@ -356,7 +357,7 @@ fn test_multi_record() {
     }
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
-        multi_record_log.truncate("queue", 0).unwrap();
+        multi_record_log.truncate("queue", ..=0).unwrap();
         assert_eq!(
             multi_record_log
                 .range("queue", ..)

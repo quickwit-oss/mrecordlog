@@ -190,7 +190,7 @@ fn test_multi_record_position_known_after_truncate() {
     }
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
-        multi_record_log.truncate("queue", 1).unwrap();
+        multi_record_log.truncate("queue", ..=1).unwrap();
         assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
     }
     {
@@ -230,7 +230,7 @@ fn test_multi_insert_truncate() {
             ]
         );
 
-        multi_record_log.truncate("queue", 0).unwrap();
+        multi_record_log.truncate("queue", ..=0).unwrap();
         assert_eq!(
             &multi_record_log
                 .range("queue", ..)
@@ -242,7 +242,7 @@ fn test_multi_insert_truncate() {
     }
     {
         let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
-        multi_record_log.truncate("queue", 1).unwrap();
+        multi_record_log.truncate("queue", ..=1).unwrap();
 
         assert_eq!(
             &multi_record_log
@@ -284,7 +284,7 @@ fn test_truncate_range_correct_pos() {
                 .unwrap(),
             Some(1)
         );
-        multi_record_log.truncate("queue", 1).unwrap();
+        multi_record_log.truncate("queue", ..=1).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"3"[..])
@@ -339,7 +339,7 @@ fn test_multi_record_size() {
         assert!(size_mem_append.memory_allocated_bytes >= size_mem_append.memory_used_bytes);
         assert!(size_mem_append.memory_allocated_bytes >= size_mem_create.memory_allocated_bytes);
 
-        multi_record_log.truncate("queue", 0).unwrap();
+        multi_record_log.truncate("queue", ..=0).unwrap();
         let size_mem_truncate = multi_record_log.resource_usage();
         assert!(size_mem_truncate.memory_used_bytes < size_mem_append.memory_used_bytes);
     }
@@ -425,7 +425,7 @@ fn test_last_position() {
     let last_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
     assert_eq!(last_pos, 0);
 
-    multi_record_log.truncate("queue1", 0).unwrap();
+    multi_record_log.truncate("queue1", ..=0).unwrap();
 
     let last_pos = multi_record_log.last_position("queue1").unwrap().unwrap();
     assert_eq!(last_pos, 0);
@@ -450,7 +450,7 @@ fn test_last_record() {
     assert_eq!(position, 0);
     assert_eq!(payload, &b"hello"[..]);
 
-    multi_record_log.truncate("queue1", 0).unwrap();
+    multi_record_log.truncate("queue1", ..=0).unwrap();
 
     let last_record = multi_record_log.last_record("queue1").unwrap();
     assert!(last_record.is_none());

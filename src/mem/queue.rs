@@ -1,93 +1,10 @@
-use std::borrow::Cow;
-use std::collections::VecDeque;
-use std::ops::{Bound, RangeBounds};
+use std::ops::{Bound, RangeBounds, RangeToInclusive};
 
+use super::rolling_buffer::RollingBuffer;
 use crate::error::AppendError;
 use crate::mem::QueueSummary;
 use crate::rolling::FileNumber;
 use crate::Record;
-
-#[derive(Default)]
-struct RollingBuffer {
-    buffer: VecDeque<u8>,
-}
-
-impl RollingBuffer {
-    fn new() -> Self {
-        RollingBuffer {
-            buffer: VecDeque::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    fn capacity(&self) -> usize {
-        self.buffer.capacity()
-    }
-
-    fn clear(&mut self) {
-        self.buffer.clear();
-        self.buffer.shrink_to_fit();
-    }
-
-    fn drain_start(&mut self, pos: usize) {
-        let target_capacity = self.len() * 9 / 8;
-        self.buffer.drain(..pos);
-        // In order to avoid leaking memory we shrink the buffer.
-        // The last maximum length (= the length before drain)
-        // is a good estimate of what we will need in the future.
-        //
-        // We add 1/8 to that in order to make sure that we don't end up
-        // shrinking  / allocating for small variations.
-
-        if self.buffer.capacity() > target_capacity {
-            self.buffer.shrink_to(target_capacity);
-        }
-    }
-
-    fn extend(&mut self, slice: &[u8]) {
-        self.buffer.extend(slice.iter().copied());
-    }
-
-    fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<[u8]> {
-        let start = match bounds.start_bound() {
-            Bound::Included(pos) => *pos,
-            Bound::Excluded(pos) => pos + 1,
-            Bound::Unbounded => 0,
-        };
-
-        let end = match bounds.end_bound() {
-            Bound::Included(pos) => pos + 1,
-            Bound::Excluded(pos) => *pos,
-            Bound::Unbounded => self.len(),
-        };
-
-        let (left_part_of_queue, right_part_of_queue) = self.buffer.as_slices();
-
-        if end < left_part_of_queue.len() {
-            Cow::Borrowed(&left_part_of_queue[start..end])
-        } else if start >= left_part_of_queue.len() {
-            let start = start - left_part_of_queue.len();
-            let end = end - left_part_of_queue.len();
-
-            Cow::Borrowed(&right_part_of_queue[start..end])
-        } else {
-            // VecDeque is a rolling buffer. As a result, we do not have
-            // access to a continuous buffer.
-            //
-            // Here the requested slice cross the boundary and we need to allocate and copy the data
-            // in a new buffer.
-            let mut res = Vec::with_capacity(end - start);
-            res.extend_from_slice(&left_part_of_queue[start..]);
-            let end = end - left_part_of_queue.len();
-            res.extend_from_slice(&right_part_of_queue[..end]);
-
-            Cow::Owned(res)
-        }
-    }
-}
 
 #[derive(Clone)]
 struct RecordMeta {
@@ -247,7 +164,8 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub fn truncate(&mut self, truncate_up_to_pos: u64) -> usize {
+    pub fn truncate_head(&mut self, truncate_range: RangeToInclusive<u64>) -> usize {
+        let truncate_up_to_pos = truncate_range.end;
         if self.start_position > truncate_up_to_pos {
             return 0;
         }
@@ -267,7 +185,8 @@ impl MemQueue {
         for record_meta in &mut self.record_metas {
             record_meta.start_offset -= start_offset_to_keep;
         }
-        self.concatenated_records.drain_start(start_offset_to_keep);
+        self.concatenated_records
+            .truncate_head(..start_offset_to_keep);
         self.start_position = truncate_up_to_pos + 1;
         first_record_to_keep
     }

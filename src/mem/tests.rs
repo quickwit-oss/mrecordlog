@@ -85,7 +85,7 @@ fn test_mem_queues_truncate() {
             .append_record("droopy", &1.into(), 5, b"payer")
             .unwrap();
     }
-    mem_queues.truncate("droopy", 3);
+    mem_queues.truncate("droopy", ..=3);
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
@@ -210,7 +210,7 @@ fn test_mem_queues_keep_filenum() {
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
 
-    mem_queues.truncate("droopy", 1);
+    mem_queues.truncate("droopy", ..=1);
 
     assert!(!files[0].can_be_deleted());
     assert!(!files[1].can_be_deleted());
@@ -223,13 +223,13 @@ fn test_mem_queues_keep_filenum() {
     assert!(!files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues.truncate("droopy", 3);
+    mem_queues.truncate("droopy", ..=3);
 
     assert!(files[0].can_be_deleted());
     assert!(files[1].can_be_deleted());
     assert!(!files[2].can_be_deleted());
 
-    mem_queues.truncate("droopy", 4);
+    mem_queues.truncate("droopy", ..=4);
 
     let empty_queues = mem_queues.empty_queues().collect::<Vec<_>>();
     assert_eq!(empty_queues.len(), 1);

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::RangeBounds;
+use std::ops::{RangeBounds, RangeToInclusive};
 
 use tracing::{info, warn};
 
@@ -154,9 +154,9 @@ impl MemQueues {
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub fn truncate(&mut self, queue: &str, position: u64) -> Option<usize> {
+    pub fn truncate(&mut self, queue: &str, position: RangeToInclusive<u64>) -> Option<usize> {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            Some(queue.truncate(position))
+            Some(queue.truncate_head(position))
         } else {
             None
         }

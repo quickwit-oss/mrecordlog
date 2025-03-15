@@ -1,5 +1,6 @@
 mod queue;
 mod queues;
+mod rolling_buffer;
 mod summary;
 
 pub(crate) use self::queue::MemQueue;

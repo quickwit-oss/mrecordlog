@@ -1,7 +1,7 @@
 workspace = { members = ["mrecordlog_cli"] }
 [package]
 name = "mrecordlog"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 description = "Quickwit's shared record log."
