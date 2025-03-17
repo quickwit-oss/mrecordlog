@@ -1,0 +1,12 @@
+we do not need to record position anymore. Keeping the last record is sufficient.
+Of course it would be nicer to store that in a separate way to avoid fragmentation.
+
+Record refcount
+
+No GC however means on restart we will often have to read way more than what is actually required.
+
+We need a way to stop reading the past.
+
+Truncating a non existing queue.
+
+just truncate to record position.

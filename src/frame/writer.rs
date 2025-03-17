@@ -1,11 +1,10 @@
 use std::io;
 
 use crate::frame::{FrameType, Header, HEADER_LEN};
-use crate::rolling::{Directory, RollingWriter};
 use crate::{BlockWrite, PersistAction, BLOCK_NUM_BYTES};
 
 pub struct FrameWriter<W> {
-    wrt: W,
+    pub(crate) wrt: W,
     // temporary buffer, not storing anything in particular after any function returns
     buffer: Box<[u8; BLOCK_NUM_BYTES]>,
 }
@@ -18,21 +17,40 @@ impl<W: BlockWrite + Unpin> FrameWriter<W> {
         }
     }
 
+    pub fn start_session(&mut self) -> io::Result<W::Session> {
+        self.wrt.start_write_session()
+    }
+
+    pub fn make_room(&mut self, num_bytes: u64) -> io::Result<()> {
+        // Framing adds some overhead. We can however compute an upperbound of the amount of room
+        // that will be needed. The worst case scenario is if we start at the very end of a
+        // block and the first frame is empty and we end up just writing a header.
+        const MAX_EFFECTIVE_BLOCK_BYTES: u64 = (BLOCK_NUM_BYTES - HEADER_LEN) as u64;
+        let num_blocks_upperbound = 1 + num_bytes.div_ceil(MAX_EFFECTIVE_BLOCK_BYTES);
+        let room_needed_upperbound: u64 = HEADER_LEN as u64 * num_blocks_upperbound + num_bytes;
+        self.wrt.make_room(room_needed_upperbound)
+    }
+
     /// Writes a frame. The payload has to be lower than the
     /// remaining space in the frame as defined
     /// by `max_writable_frame_length`.
-    pub fn write_frame(&mut self, frame_type: FrameType, payload: &[u8]) -> io::Result<()> {
+    pub fn write_frame(
+        &mut self,
+        frame_type: FrameType,
+        payload: &[u8],
+        session: &mut W::Session,
+    ) -> io::Result<()> {
         let num_bytes_remaining_in_block = self.wrt.num_bytes_remaining_in_block();
         if num_bytes_remaining_in_block < HEADER_LEN {
             let zero_bytes = [0u8; HEADER_LEN];
             self.wrt
-                .write(&zero_bytes[..num_bytes_remaining_in_block])?;
+                .write(&zero_bytes[..num_bytes_remaining_in_block], session)?;
         }
         let record_len = HEADER_LEN + payload.len();
         let (buffer_header, buffer_record) = self.buffer[..record_len].split_at_mut(HEADER_LEN);
         buffer_record.copy_from_slice(payload);
         Header::for_payload(frame_type, payload).serialize(buffer_header);
-        self.wrt.write(&self.buffer[..record_len])?;
+        self.wrt.write(&self.buffer[..record_len], session)?;
         Ok(())
     }
 
@@ -63,11 +81,5 @@ impl<W: BlockWrite + Unpin> FrameWriter<W> {
     #[cfg(test)]
     pub fn into_writer(self) -> W {
         self.wrt
-    }
-}
-
-impl FrameWriter<RollingWriter> {
-    pub fn directory(&mut self) -> &mut Directory {
-        &mut self.wrt.directory
     }
 }

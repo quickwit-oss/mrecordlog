@@ -32,7 +32,7 @@ impl PersistAction {
 ///
 /// The `PersistPolicy` defines the trade-off applied for the second kind of
 /// operations.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum PersistPolicy {
     /// Only ensure data is persisted when critical records are written.
     ///

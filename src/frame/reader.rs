@@ -2,15 +2,14 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::frame::{FrameType, FrameWriter, Header, HEADER_LEN};
-use crate::rolling::{RollingReader, RollingWriter};
+use crate::frame::{FrameType, Header, HEADER_LEN};
 use crate::{BlockRead, BLOCK_NUM_BYTES};
 
 pub struct FrameReader<R> {
-    reader: R,
+    pub(crate) reader: R,
 
     /// In block cursor
-    cursor: usize,
+    pub(crate) cursor: usize,
 
     // The current block is corrupted.
     block_corrupted: bool,
@@ -35,8 +34,8 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
         }
     }
 
-    pub fn read(&self) -> &R {
-        &self.reader
+    pub fn start_session(&self) -> R::Session {
+        self.reader.start_session()
     }
 
     // Returns the number of bytes remaining into
@@ -47,13 +46,16 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
         crate::BLOCK_NUM_BYTES - self.cursor
     }
 
-    fn go_to_next_block_if_necessary(&mut self) -> Result<(), ReadFrameError> {
+    fn go_to_next_block_if_necessary(
+        &mut self,
+        session: &mut R::Session,
+    ) -> Result<(), ReadFrameError> {
         let num_bytes_to_end_of_block = self.num_bytes_to_end_of_block();
         let need_to_skip_block = self.block_corrupted || num_bytes_to_end_of_block < HEADER_LEN;
         if !need_to_skip_block {
             return Ok(());
         }
-        if !self.reader.next_block()? {
+        if !self.reader.next_block(session)? {
             return Err(ReadFrameError::NotAvailable);
         }
 
@@ -79,8 +81,11 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
     }
 
     // Reads the next frame.
-    pub fn read_frame(&mut self) -> Result<(FrameType, &[u8]), ReadFrameError> {
-        self.go_to_next_block_if_necessary()?;
+    pub fn read_frame(
+        &mut self,
+        session: &mut R::Session,
+    ) -> Result<(FrameType, &[u8]), ReadFrameError> {
+        self.go_to_next_block_if_necessary(session)?;
         let header = self.get_frame_header()?;
         self.cursor += HEADER_LEN;
         if self.cursor + header.len() > BLOCK_NUM_BYTES {
@@ -101,13 +106,5 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
             return Err(ReadFrameError::Corruption);
         }
         Ok((header.frame_type(), frame_payload))
-    }
-}
-
-impl FrameReader<RollingReader> {
-    pub fn into_writer(self) -> io::Result<FrameWriter<RollingWriter>> {
-        let mut rolling_writer: RollingWriter = self.reader.into_writer()?;
-        rolling_writer.forward(self.cursor)?;
-        Ok(FrameWriter::create(rolling_writer))
     }
 }

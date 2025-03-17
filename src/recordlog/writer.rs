@@ -1,12 +1,11 @@
 use std::io;
 
 use crate::block_read_write::VecBlockWriter;
-use crate::frame::{FrameType, FrameWriter};
-use crate::rolling::{Directory, FileNumber, RollingWriter};
-use crate::{BlockWrite, PersistAction, Serializable};
+use crate::frame::{FrameType, FrameWriter, HEADER_LEN};
+use crate::{BlockWrite, PersistAction, Serializable, BLOCK_NUM_BYTES};
 
 pub struct RecordWriter<W> {
-    frame_writer: FrameWriter<W>,
+    pub(crate) frame_writer: FrameWriter<W>,
     buffer: Vec<u8>,
 }
 
@@ -36,6 +35,10 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
 }
 
 impl<W: BlockWrite + Unpin> RecordWriter<W> {
+    pub fn start_session(&mut self) -> io::Result<W::Session> {
+        self.frame_writer.start_session()
+    }
+
     /// Writes a record.
     ///
     /// Even if this call returns `Ok(())`, at this point the data
@@ -44,11 +47,20 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
     /// For instance, the data could be stale in a library level buffer,
     /// by a writer level buffer, or an application buffer,
     /// or could not be flushed to disk yet by the OS.
-    pub fn write_record<'a>(&mut self, record: impl Serializable<'a>) -> io::Result<()> {
+    pub fn write_record<'a>(
+        &mut self,
+        record: impl Serializable<'a>,
+        session: &mut W::Session,
+    ) -> io::Result<()> {
         let mut is_first_frame = true;
         self.buffer.clear();
         record.serialize(&mut self.buffer);
         let mut payload = &self.buffer[..];
+        let room_needed_upperbound: u64 = HEADER_LEN as u64
+            + (BLOCK_NUM_BYTES as u64)
+                * payload.len().div_ceil(BLOCK_NUM_BYTES - HEADER_LEN) as u64;
+        self.frame_writer.make_room(room_needed_upperbound)?;
+
         loop {
             let frame_payload_len = self
                 .frame_writer
@@ -58,7 +70,8 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
             payload = &payload[frame_payload_len..];
             let is_last_frame = payload.is_empty();
             let frame_type = frame_type(is_first_frame, is_last_frame);
-            self.frame_writer.write_frame(frame_type, frame_payload)?;
+            self.frame_writer
+                .write_frame(frame_type, frame_payload, session)?;
             is_first_frame = false;
             if is_last_frame {
                 break;
@@ -74,20 +87,6 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
 
     pub fn get_underlying_wrt(&self) -> &W {
         self.frame_writer.get_underlying_wrt()
-    }
-}
-
-impl RecordWriter<RollingWriter> {
-    pub fn directory(&mut self) -> &mut Directory {
-        self.frame_writer.directory()
-    }
-
-    pub fn current_file(&mut self) -> &FileNumber {
-        self.get_underlying_wrt().current_file()
-    }
-
-    pub fn size(&self) -> usize {
-        self.get_underlying_wrt().size()
     }
 }
 

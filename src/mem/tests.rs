@@ -1,14 +1,15 @@
+use std::sync::Arc;
+
 use super::*;
 use crate::error::{AlreadyExists, AppendError};
-use crate::rolling::FileNumber;
 use crate::Record;
 
 #[test]
 fn test_mem_queues_already_exists() {
     let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
+    mem_queues.create_queue("droopy", ()).unwrap();
     assert!(matches!(
-        mem_queues.create_queue("droopy"),
+        mem_queues.create_queue("droopy", ()),
         Err(AlreadyExists)
     ));
 }
@@ -16,33 +17,23 @@ fn test_mem_queues_already_exists() {
 #[test]
 fn test_mem_queues() {
     let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
-    mem_queues.create_queue("fable").unwrap();
+    mem_queues.create_queue("droopy", ()).unwrap();
+    mem_queues.create_queue("fable", ()).unwrap();
     {
+        assert!(mem_queues.append_record("droopy", &(), 0, b"hello").is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 1, b"happy").is_ok());
+    }
+
+    {
+        assert!(mem_queues.append_record("fable", &(), 0, b"maitre").is_ok());
         assert!(mem_queues
-            .append_record("droopy", &FileNumber::for_test(1), 0, b"hello")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("droopy", &FileNumber::for_test(1), 1, b"happy")
+            .append_record("fable", &(), 1, b"corbeau")
             .is_ok());
     }
 
     {
-        assert!(mem_queues
-            .append_record("fable", &FileNumber::for_test(1), 0, b"maitre")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("fable", &FileNumber::for_test(1), 1, b"corbeau")
-            .is_ok());
-    }
-
-    {
-        assert!(mem_queues
-            .append_record("droopy", &FileNumber::for_test(1), 2, b"tax")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("droopy", &FileNumber::for_test(1), 3, b"payer")
-            .is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 2, b"tax").is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 3, b"payer").is_ok());
         assert_eq!(
             mem_queues.range("droopy", 0..).unwrap().next(),
             Some(Record::new(0, b"hello"))
@@ -64,28 +55,18 @@ fn test_mem_queues() {
 #[test]
 fn test_mem_queues_truncate() {
     let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
+    mem_queues.create_queue("droopy", ()).unwrap();
     {
-        assert!(mem_queues
-            .append_record("droopy", &1.into(), 0, b"hello")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("droopy", &1.into(), 1, b"happy")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("droopy", &1.into(), 2, b"tax")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("droopy", &1.into(), 3, b"payer")
-            .is_ok());
-        assert!(mem_queues
-            .append_record("droopy", &1.into(), 4, b"!")
-            .is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 0, b"hello").is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 1, b"happy").is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 2, b"tax").is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 3, b"payer").is_ok());
+        assert!(mem_queues.append_record("droopy", &(), 4, b"!").is_ok());
         mem_queues
-            .append_record("droopy", &1.into(), 5, b"payer")
+            .append_record("droopy", &(), 5, b"payer")
             .unwrap();
     }
-    mem_queues.truncate("droopy", ..=3);
+    mem_queues.truncate("droopy", ..=3, &());
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
         &droopy[..],
@@ -96,18 +77,12 @@ fn test_mem_queues_truncate() {
 #[test]
 fn test_mem_queues_skip_advance() {
     let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
+    mem_queues.create_queue("droopy", ()).unwrap();
+    assert!(mem_queues.append_record("droopy", &(), 0, b"hello").is_ok());
+    assert!(mem_queues.append_record("droopy", &(), 2, b"happy").is_ok());
+    assert!(mem_queues.append_record("droopy", &(), 3, b"happy").is_ok());
     assert!(mem_queues
-        .append_record("droopy", &1.into(), 0, b"hello")
-        .is_ok());
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 2, b"happy")
-        .is_ok());
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 3, b"happy")
-        .is_ok());
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 1, b"happy")
+        .append_record("droopy", &(), 1, b"happy")
         .is_err());
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(
@@ -134,16 +109,12 @@ fn test_mem_queues_skip_advance() {
 
 #[test]
 fn test_mem_queues_append_in_the_past_yield_error() {
-    let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 0, b"hello")
-        .is_ok());
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 1, b"happy")
-        .is_ok());
+    let mut mem_queues: MemQueues<()> = MemQueues::default();
+    mem_queues.create_queue("droopy", ()).unwrap();
+    assert!(mem_queues.append_record("droopy", &(), 0, b"hello").is_ok());
+    assert!(mem_queues.append_record("droopy", &(), 1, b"happy").is_ok());
     assert!(matches!(
-        mem_queues.append_record("droopy", &1.into(), 0, b"happy"),
+        mem_queues.append_record("droopy", &(), 0, b"happy"),
         Err(AppendError::Past)
     ));
 }
@@ -151,13 +122,11 @@ fn test_mem_queues_append_in_the_past_yield_error() {
 #[test]
 fn test_mem_queues_append_idempotence() {
     let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 0, b"hello")
-        .is_ok());
+    mem_queues.create_queue("droopy", ()).unwrap();
+    assert!(mem_queues.append_record("droopy", &(), 0, b"hello").is_ok());
     assert!(matches!(
         mem_queues
-            .append_record("droopy", &1.into(), 0, b"different")
+            .append_record("droopy", &(), 0, b"different")
             .unwrap_err(),
         AppendError::Past
     ));
@@ -168,74 +137,76 @@ fn test_mem_queues_append_idempotence() {
 #[test]
 fn test_mem_queues_non_zero_first_el() {
     let mut mem_queues = MemQueues::default();
-    mem_queues.create_queue("droopy").unwrap();
-    assert!(mem_queues
-        .append_record("droopy", &1.into(), 5, b"hello")
-        .is_ok());
+    mem_queues.create_queue("droopy", ()).unwrap();
+    assert!(mem_queues.append_record("droopy", &(), 5, b"hello").is_ok());
     let droopy: Vec<Record> = mem_queues.range("droopy", 0..).unwrap().collect();
     assert_eq!(droopy, &[Record::new(5, b"hello")]);
 }
 
 #[test]
-fn test_mem_queues_keep_filenum() {
+fn test_mem_queues_keep_ref_count() {
+    let has_been_dropped = |ref_count: &Arc<usize>| Arc::strong_count(ref_count) == 1;
+
     let mut mem_queues = MemQueues::default();
 
-    let files = (0..4).map(FileNumber::for_test).collect::<Vec<_>>();
+    let ref_counts = (0..4).map(|i| Arc::new(i)).collect::<Vec<_>>();
 
-    assert!(files.iter().all(FileNumber::can_be_deleted));
-
-    mem_queues.create_queue("droopy").unwrap();
-    mem_queues
-        .append_record("droopy", &files[0], 0, b"hello")
-        .unwrap();
-
-    assert!(!files[0].can_be_deleted());
+    assert!(ref_counts.iter().all(has_been_dropped));
 
     mem_queues
-        .append_record("droopy", &files[0], 1, b"hello")
+        .create_queue("droopy", ref_counts[0].clone())
+        .unwrap();
+    mem_queues
+        .append_record("droopy", &ref_counts[0], 0, b"hello")
         .unwrap();
 
-    assert!(!files[0].can_be_deleted());
+    assert!(!has_been_dropped(&ref_counts[0]));
 
     mem_queues
-        .append_record("droopy", &files[0], 2, b"hello")
+        .append_record("droopy", &ref_counts[0], 1, b"hello")
         .unwrap();
 
-    assert!(!files[0].can_be_deleted());
+    assert!(!has_been_dropped(&ref_counts[0]));
 
     mem_queues
-        .append_record("droopy", &files[1], 3, b"hello")
+        .append_record("droopy", &ref_counts[0], 2, b"hello")
         .unwrap();
 
-    assert!(!files[0].can_be_deleted());
-    assert!(!files[1].can_be_deleted());
-
-    mem_queues.truncate("droopy", ..=1);
-
-    assert!(!files[0].can_be_deleted());
-    assert!(!files[1].can_be_deleted());
+    assert!(!has_been_dropped(&ref_counts[0]));
 
     mem_queues
-        .append_record("droopy", &files[2], 4, b"hello")
+        .append_record("droopy", &ref_counts[1], 3, b"hello")
         .unwrap();
 
-    assert!(!files[0].can_be_deleted());
-    assert!(!files[1].can_be_deleted());
-    assert!(!files[2].can_be_deleted());
+    assert!(!has_been_dropped(&ref_counts[0]));
+    assert!(!has_been_dropped(&ref_counts[1]));
 
-    mem_queues.truncate("droopy", ..=3);
+    mem_queues.truncate("droopy", ..=1, &ref_counts[1]);
 
-    assert!(files[0].can_be_deleted());
-    assert!(files[1].can_be_deleted());
-    assert!(!files[2].can_be_deleted());
+    assert!(!has_been_dropped(&ref_counts[0]));
+    assert!(!has_been_dropped(&ref_counts[1]));
 
-    mem_queues.truncate("droopy", ..=4);
+    mem_queues
+        .append_record("droopy", &ref_counts[2], 4, b"hello")
+        .unwrap();
+
+    assert!(!has_been_dropped(&ref_counts[0]));
+    assert!(!has_been_dropped(&ref_counts[1]));
+    assert!(!has_been_dropped(&ref_counts[2]));
+
+    mem_queues.truncate("droopy", ..=3, &ref_counts[2]);
+
+    assert!(has_been_dropped(&ref_counts[0]));
+    assert!(has_been_dropped(&ref_counts[1]));
+    assert!(!has_been_dropped(&ref_counts[2]));
+
+    mem_queues.truncate("droopy", ..=4, &ref_counts[3]);
 
     let empty_queues = mem_queues.empty_queues().collect::<Vec<_>>();
     assert_eq!(empty_queues.len(), 1);
     assert_eq!(empty_queues[0].0, "droopy");
 
-    mem_queues.ack_position("droopy", 5);
+    mem_queues.ack_position("droopy", 5, &ref_counts[3]);
 
-    assert!(files[2].can_be_deleted());
+    assert!(has_been_dropped(&ref_counts[2]));
 }

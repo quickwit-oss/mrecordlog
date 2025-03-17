@@ -4,14 +4,22 @@ use crate::PersistAction;
 
 pub const BLOCK_NUM_BYTES: usize = 32_768;
 
+/// A block read is supposed to be positioned on a block at its initialization.
+///
+/// In other words, it is not necessary to call `next_block` a first time
+/// before calling `block()`.
 pub trait BlockRead {
+    type Session;
+
+    fn start_session(&self) -> Self::Session;
+
     /// Loads the next block.
     /// If `Ok(true)` is returned, the new block is available through
     /// `.block()`.
     ///
     /// If `Ok(false)` is returned, the end of the `BlockReader`
     /// has been reached and the content of `block()` could be anything.
-    fn next_block(&mut self) -> io::Result<bool>;
+    fn next_block(&mut self, read_session: &mut Self::Session) -> io::Result<bool>;
 
     /// A `BlockReader` is always position on a specific block.
     ///
@@ -25,8 +33,17 @@ pub trait BlockRead {
 }
 
 pub trait BlockWrite {
+    type Session;
+
+    fn start_write_session(&mut self) -> io::Result<Self::Session>;
+
+    fn make_room(&mut self, num_bytes: u64) -> io::Result<()>;
+
     /// Must panic if buf is larger than `num_bytes_remaining_in_block`.
-    fn write(&mut self, buf: &[u8]) -> io::Result<()>;
+    /// Not that this trait does not have next_block() method.
+    ///
+    /// We automatically go to the next block after the current block has been entirely written.
+    fn write(&mut self, buf: &[u8], write_session: &mut Self::Session) -> io::Result<()>;
     /// Persist the data following the `persist_action`.
     fn persist(&mut self, persist_action: PersistAction) -> io::Result<()>;
     /// Number of bytes that can be added in the block.
@@ -49,7 +66,11 @@ impl<'a> From<&'a [u8]> for ArrayReader<'a> {
 }
 
 impl BlockRead for ArrayReader<'_> {
-    fn next_block(&mut self) -> io::Result<bool> {
+    type Session = ();
+
+    fn start_session(&self) -> Self::Session {}
+
+    fn next_block(&mut self, _session: &mut Self::Session) -> io::Result<bool> {
         if self.data.len() < BLOCK_NUM_BYTES {
             return Ok(false);
         }
@@ -81,7 +102,14 @@ impl From<VecBlockWriter> for Vec<u8> {
 }
 
 impl BlockWrite for VecBlockWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+    type Session = ();
+    fn make_room(&mut self, num_bytes: u64) -> io::Result<()> {
+        // TODO consider just doubling for performance.
+        let new_len = ceil_to_block(self.cursor + num_bytes as usize);
+        self.buffer.resize(new_len, 0u8);
+        Ok(())
+    }
+    fn write(&mut self, buf: &[u8], _session: &mut Self::Session) -> io::Result<()> {
         assert!(buf.len() <= self.num_bytes_remaining_in_block());
         if self.cursor + buf.len() > self.buffer.len() {
             let new_len = ceil_to_block((self.cursor + buf.len()) * 2 + 1);
@@ -98,5 +126,9 @@ impl BlockWrite for VecBlockWriter {
 
     fn num_bytes_remaining_in_block(&self) -> usize {
         BLOCK_NUM_BYTES - (self.cursor % BLOCK_NUM_BYTES)
+    }
+
+    fn start_write_session(&mut self) -> io::Result<Self::Session> {
+        Ok(())
     }
 }
