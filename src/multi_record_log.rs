@@ -1,5 +1,5 @@
 use std::io;
-use std::ops::RangeBounds;
+use std::ops::{RangeBounds, RangeToInclusive};
 use std::path::Path;
 
 use bytes::Buf;
@@ -72,8 +72,11 @@ impl MultiRecordLog {
                                 .map_err(|_| ReadRecordError::Corruption)?;
                         }
                     }
-                    MultiPlexedRecord::Truncate { position, queue } => {
-                        in_mem_queues.truncate(queue, position);
+                    MultiPlexedRecord::Truncate {
+                        truncate_range,
+                        queue,
+                    } => {
+                        in_mem_queues.truncate(queue, truncate_range);
                     }
                     MultiPlexedRecord::RecordPosition { queue, position } => {
                         in_mem_queues.ack_position(queue, position);
@@ -227,20 +230,30 @@ impl MultiRecordLog {
         Ok(())
     }
 
-    /// Truncates the queue up to `position`, included. This method immediately truncates the
-    /// underlying in-memory queue whereas the backing log files are deleted asynchronously when
-    /// they become exclusively composed of deleted records.
+    /// Truncates the queue up to a given `position`, included. This method immediately
+    /// truncates the underlying in-memory queue whereas the backing log files are deleted
+    /// asynchronously when they become exclusively composed of deleted records.
     ///
     /// This method will always truncate the record log and release the associated memory.
     /// It returns the number of records deleted.
-    pub fn truncate(&mut self, queue: &str, position: u64) -> Result<usize, TruncateError> {
-        info!(position = position, queue = queue, "truncate queue");
+    pub fn truncate(
+        &mut self,
+        queue: &str,
+        truncate_range: RangeToInclusive<u64>,
+    ) -> Result<usize, TruncateError> {
+        info!(range=?truncate_range, queue = queue, "truncate queue");
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
         self.record_log_writer
-            .write_record(MultiPlexedRecord::Truncate { position, queue })?;
-        let removed_count = self.in_mem_queues.truncate(queue, position).unwrap_or(0);
+            .write_record(MultiPlexedRecord::Truncate {
+                truncate_range,
+                queue,
+            })?;
+        let removed_count = self
+            .in_mem_queues
+            .truncate(queue, truncate_range)
+            .unwrap_or(0);
         self.run_gc_if_necessary()?;
         self.persist_on_policy()?;
         Ok(removed_count)

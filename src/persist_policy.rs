@@ -18,15 +18,16 @@ impl PersistAction {
 /// We have two type of operations on the mrecordlog.
 ///
 /// Critical records are relatively rare and really need to be persisted:
-/// - RecordPosition { queue: &'a str, position: u64 },
-/// - DeleteQueue.
+///   - RecordPosition { queue: &'a str, position: u64 },
+///   - DeleteQueue.
 ///
 /// For these operations, we want to always flush and fsync.
 ///
 /// On the other hand,
-/// - Truncate
-/// - AppendRecords
-/// are considered are more frequent and one might want to sacrifice
+///   - Truncate
+///   - AppendRecords
+///
+/// are both considered are more frequent and one might want to sacrifice
 /// persistence guarantees for performance.
 ///
 /// The `PersistPolicy` defines the trade-off applied for the second kind of

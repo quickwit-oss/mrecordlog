@@ -1,4 +1,5 @@
 use std::convert::{TryFrom, TryInto};
+use std::ops::RangeToInclusive;
 
 use bytes::Buf;
 use tracing::error;
@@ -14,8 +15,11 @@ pub(crate) enum MultiPlexedRecord<'a> {
         position: u64, //< not used, the payload contain the position for each record
         records: MultiRecord<'a>,
     },
-    /// Records the truncation of a specific queue.
-    Truncate { queue: &'a str, position: u64 },
+    /// Records the truncation of a specific queue, up to and including the position.
+    Truncate {
+        queue: &'a str,
+        truncate_range: RangeToInclusive<u64>,
+    },
     /// Records the next position of a given queue.
     /// If the queue does not exists, creates it.
     ///
@@ -27,7 +31,7 @@ pub(crate) enum MultiPlexedRecord<'a> {
     },
 }
 
-impl<'a> std::fmt::Debug for MultiPlexedRecord<'a> {
+impl std::fmt::Debug for MultiPlexedRecord<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::AppendRecords {
@@ -40,10 +44,13 @@ impl<'a> std::fmt::Debug for MultiPlexedRecord<'a> {
                 .field("position", position)
                 .field("records_len", &records.count())
                 .finish(),
-            Self::Truncate { queue, position } => f
+            Self::Truncate {
+                queue,
+                truncate_range,
+            } => f
                 .debug_struct("Truncate")
                 .field("queue", queue)
-                .field("position", position)
+                .field("range", truncate_range)
                 .finish(),
             Self::RecordPosition { queue, position } => f
                 .debug_struct("RecordPosition")
@@ -127,8 +134,11 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
                 );
             }
 
-            MultiPlexedRecord::Truncate { queue, position } => {
-                serialize(RecordType::Truncate, position, queue, &[], buffer);
+            MultiPlexedRecord::Truncate {
+                queue,
+                truncate_range,
+            } => {
+                serialize(RecordType::Truncate, truncate_range.end, queue, &[], buffer);
             }
             MultiPlexedRecord::RecordPosition { queue, position } => {
                 serialize(RecordType::Touch, position, queue, &[], buffer);
@@ -169,7 +179,10 @@ impl<'a> Serializable<'a> for MultiPlexedRecord<'a> {
                 position,
                 records: MultiRecord::new(payload).ok()?,
             }),
-            RecordType::Truncate => Some(MultiPlexedRecord::Truncate { queue, position }),
+            RecordType::Truncate => Some(MultiPlexedRecord::Truncate {
+                queue,
+                truncate_range: ..=position,
+            }),
             RecordType::Touch => Some(MultiPlexedRecord::RecordPosition { queue, position }),
             RecordType::DeleteQueue => Some(MultiPlexedRecord::DeleteQueue { queue, position }),
         }
@@ -186,7 +199,7 @@ pub(crate) struct MultiRecord<'a> {
     byte_offset: usize,
 }
 
-impl<'a> MultiRecord<'a> {
+impl MultiRecord<'_> {
     pub fn new(buffer: &[u8]) -> Result<MultiRecord, MultiRecordCorruption> {
         let mut mrecord = MultiRecord::new_unchecked(buffer);
 

@@ -48,7 +48,7 @@ impl<'a> From<&'a [u8]> for ArrayReader<'a> {
     }
 }
 
-impl<'a> BlockRead for ArrayReader<'a> {
+impl BlockRead for ArrayReader<'_> {
     fn next_block(&mut self) -> io::Result<bool> {
         if self.data.len() < BLOCK_NUM_BYTES {
             return Ok(false);
