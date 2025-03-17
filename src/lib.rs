@@ -6,14 +6,15 @@ pub use block_read_write::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
 pub mod error;
 mod frame;
 mod mem;
-mod multi_record_log;
+// mod multi_record_log;
 mod persist_policy;
-mod record;
-mod recordlog;
-mod rolling;
+// mod record;
+// mod recordlog;
+mod page_directory;
+pub mod rolling;
 
 pub use mem::{QueueSummary, QueuesSummary};
-pub use multi_record_log::MultiRecordLog;
+// pub use multi_record_log::MultiRecordLog;
 pub(crate) use persist_policy::PersistState;
 pub use persist_policy::{PersistAction, PersistPolicy};
 

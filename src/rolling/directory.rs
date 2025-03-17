@@ -225,6 +225,8 @@ impl RollingWriter {
         &self.file_number
     }
 
+    /// Returns number of bytes occupied on the disk by the
+    /// different files of the directory
     pub fn size(&self) -> usize {
         self.directory.files.count() * FILE_NUM_BYTES
     }
