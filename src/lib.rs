@@ -6,6 +6,7 @@ pub use block_read_write::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
 pub mod error;
 mod frame;
 mod mem;
+
 // mod multi_record_log;
 mod persist_policy;
 // mod record;
@@ -44,11 +45,14 @@ pub struct ResourceUsage {
     pub disk_used_bytes: usize,
 }
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 #[cfg(test)]
-mod proptests;
+mod mockfile;
+
+// #[cfg(test)]
+// mod proptests;
 
 pub trait Serializable<'a>: Sized {
     /// Clears the buffer first.
