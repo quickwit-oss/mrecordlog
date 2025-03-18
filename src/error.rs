@@ -91,3 +91,13 @@ pub enum ReadRecordError {
     #[error("Corruption")]
     Corruption,
 }
+
+#[derive(Error, Debug)]
+pub enum HeaderError {
+    #[error("invalid magic number: found {magic_number}")]
+    InvalidMagicNumber { magic_number: u32 },
+    #[error("invalid checksum")]
+    InvalidChecksum,
+    #[error("unsupported version: {version}")]
+    UnsupportedVersion { version: u32 },
+}
