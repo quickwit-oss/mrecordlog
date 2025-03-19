@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
 
 mod header;
 mod page_list;
@@ -19,8 +18,8 @@ pub type RefCount = u32;
 
 #[derive(Copy, Clone, Debug)]
 pub struct PageHandle {
-    start_page_id: u32,
-    num_pages: u32,
+    pub start_page_id: u32,
+    pub num_pages: u32,
 }
 
 pub struct Directory {
