@@ -1,8 +1,9 @@
 use std::io::{self, Read, Seek, Write};
+
 use std::ops::Range;
 
 use super::header::HeaderInfo;
-use super::{FileLike, PageHandle, PageId, PageListWriter, RefCount, PAGE_SIZE};
+use super::{FileLike, PageHandle, PageId, RefCount, PAGE_SIZE};
 
 pub struct PageList {
     num_pages: u32,
@@ -211,10 +212,6 @@ impl PageList {
         }
     }
 
-    pub fn writer(&mut self) -> PageListWriter {
-        todo!()
-    }
-
     fn compute_slot_range(&self, epoch_parity: bool) -> Range<usize> {
         let slot_len = compute_slot_len(self.num_pages);
         let start_offset = if epoch_parity {
@@ -318,7 +315,7 @@ mod tests {
         let mut file = MockFile::new();
         let header_info = HeaderInfo {
             header_len: 3,
-            num_pages: 100u32,
+            num_pages: 10u32,
         };
         {
             let page_list = PageList::initialize_file(header_info, &mut file).unwrap();
@@ -328,6 +325,7 @@ mod tests {
         }
         {
             let mut page_list = PageList::load(header_info, &mut file).unwrap();
+            assert_eq!(page_list.page_ids, &[0,1,2,3,4,5,6,7,8,9]);
             assert_eq!(page_list.epoch, 1);
             assert_eq!(page_list.num_pages, header_info.num_pages);
             for i in 0..header_info.num_pages as usize {
@@ -336,12 +334,23 @@ mod tests {
             page_list.gc(&mut file).unwrap();
         }
         {
-            let page_list = PageList::load(header_info, &mut file).unwrap();
+            let mut page_list = PageList::load(header_info, &mut file).unwrap();
             assert_eq!(page_list.epoch, 2);
             assert_eq!(page_list.num_pages, header_info.num_pages);
             for i in 0..header_info.num_pages as usize {
                 assert_eq!(page_list.page_ids[i], i as PageId);
             }
+            page_list.inc_ref_count(PageHandle { start_page_id: 0, num_pages: 1 }, 1);
+            page_list.dec_ref_count(PageHandle { start_page_id: 0, num_pages: 1 });
+            page_list.inc_ref_count(PageHandle { start_page_id: 1, num_pages: 1 }, 1);
+            page_list.inc_ref_count(PageHandle { start_page_id: 2, num_pages: 1 }, 1);
+            page_list.inc_ref_count(PageHandle { start_page_id: 3, num_pages: 1 }, 1);
+            page_list.inc_ref_count(PageHandle { start_page_id: 4, num_pages: 1 }, 1);
+            page_list.dec_ref_count(PageHandle { start_page_id: 4, num_pages: 1 });
+            page_list.inc_ref_count(PageHandle { start_page_id: 5, num_pages: 1 }, 1);
+            page_list.cursor = 6 * PAGE_SIZE as u64;
+            page_list.gc(&mut file).unwrap();
+            assert_eq!(page_list.page_ids, &[1,2,3,5,0,4,6,7,8,9]);
         }
     }
 }
