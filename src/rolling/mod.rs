@@ -1,7 +1,7 @@
 mod directory;
 mod file_number;
 
-pub use self::directory::{Directory, RollingReader, RollingWriter};
+pub use self::directory::{RollingReader, RollingWriter};
 pub use self::file_number::{FileNumber, FileTracker};
 
 const FRAME_NUM_BYTES: usize = 1 << 15;

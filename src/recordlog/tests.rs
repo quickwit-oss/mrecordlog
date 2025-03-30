@@ -1,8 +1,8 @@
 use super::{RecordReader, RecordWriter};
-use crate::block_read_write::ArrayReader;
+use crate::block_read_write::{ArrayReader, VecBlockWriter};
 use crate::error::ReadRecordError;
 use crate::frame::HEADER_LEN;
-use crate::{PersistAction, BLOCK_NUM_BYTES};
+use crate::BLOCK_NUM_BYTES;
 
 #[test]
 fn test_no_data() {
@@ -13,10 +13,10 @@ fn test_no_data() {
 
 #[test]
 fn test_empty_record() {
-    let mut writer = RecordWriter::in_memory();
-    writer.write_record("").unwrap();
-    writer.persist(PersistAction::Flush).unwrap();
-    let buf: Vec<u8> = writer.into_writer().into();
+    let mut record_writer = RecordWriter::default();
+    let mut wrt = VecBlockWriter::default();
+    record_writer.write_record("", &mut wrt).unwrap();
+    let buf: Vec<u8> = wrt.into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert_eq!(reader.read_record::<&str>().unwrap(), Some(""));
     assert_eq!(reader.read_record::<&str>().unwrap(), None);
@@ -24,11 +24,11 @@ fn test_empty_record() {
 
 #[test]
 fn test_simple_record() {
-    let mut writer = RecordWriter::in_memory();
+    let mut record_writer = RecordWriter::default();
+    let mut wrt = VecBlockWriter::default();
     let record = "hello";
-    writer.write_record(record).unwrap();
-    writer.persist(PersistAction::Flush).unwrap();
-    let buf: Vec<u8> = writer.into_writer().into();
+    record_writer.write_record(record, &mut wrt).unwrap();
+    let buf: Vec<u8> = wrt.into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert!(matches!(reader.read_record::<&str>(), Ok(Some("hello"))));
     assert!(matches!(reader.read_record::<&str>(), Ok(None)));
@@ -41,10 +41,12 @@ fn make_long_entry(len: usize) -> String {
 #[test]
 fn test_spans_over_more_than_one_block() {
     let long_entry: String = make_long_entry(80_000);
-    let mut writer = RecordWriter::in_memory();
-    writer.write_record(long_entry.as_str()).unwrap();
-    writer.persist(PersistAction::Flush).unwrap();
-    let buf: Vec<u8> = writer.into_writer().into();
+    let mut record_writer = RecordWriter::default();
+    let mut wrt = VecBlockWriter::default();
+    record_writer
+        .write_record(long_entry.as_str(), &mut wrt)
+        .unwrap();
+    let buf: Vec<u8> = wrt.into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     let record_payload: &str = reader.read_record().unwrap().unwrap();
     assert_eq!(record_payload, &long_entry);
@@ -57,11 +59,13 @@ fn test_block_requires_padding() {
     // first block.
     let long_record = make_long_entry(BLOCK_NUM_BYTES - HEADER_LEN - HEADER_LEN - 1 - 8);
     let short_record = "hello";
-    let mut writer = RecordWriter::in_memory();
-    writer.write_record(long_record.as_str()).unwrap();
-    writer.write_record(short_record).unwrap();
-    writer.persist(PersistAction::Flush).unwrap();
-    let buffer: Vec<u8> = writer.into_writer().into();
+    let mut record_writer = RecordWriter::default();
+    let mut wrt = VecBlockWriter::default();
+    record_writer
+        .write_record(long_record.as_str(), &mut wrt)
+        .unwrap();
+    record_writer.write_record(short_record, &mut wrt).unwrap();
+    let buffer: Vec<u8> = wrt.into();
     let mut reader = RecordReader::open(ArrayReader::from(&buffer[..]));
     assert_eq!(
         reader.read_record::<&str>().unwrap(),
@@ -77,11 +81,13 @@ fn test_first_chunk_empty() {
     // first block.
     let long_record = make_long_entry(BLOCK_NUM_BYTES - HEADER_LEN - HEADER_LEN);
     let short_record = "hello";
-    let mut writer = RecordWriter::in_memory();
-    writer.write_record(&long_record[..]).unwrap();
-    writer.write_record(short_record).unwrap();
-    writer.persist(PersistAction::Flush).unwrap();
-    let buf: Vec<u8> = writer.into_writer().into();
+    let mut wrt = VecBlockWriter::default();
+    let mut record_writer = RecordWriter::default();
+    record_writer
+        .write_record(&long_record[..], &mut wrt)
+        .unwrap();
+    record_writer.write_record(short_record, &mut wrt).unwrap();
+    let buf: Vec<u8> = wrt.into();
     let mut reader = RecordReader::open(ArrayReader::from(&buf[..]));
     assert_eq!(
         reader.read_record::<&str>().unwrap(),
@@ -94,12 +100,14 @@ fn test_first_chunk_empty() {
 #[test]
 fn test_behavior_upon_corruption() {
     let records: Vec<String> = (0..1_000).map(|i| format!("hello{i}")).collect();
-    let mut writer = RecordWriter::in_memory();
+    let mut record_writer = RecordWriter::default();
+    let mut wrt = VecBlockWriter::default();
     for record in &records {
-        writer.write_record(record.as_str()).unwrap();
+        record_writer
+            .write_record(record.as_str(), &mut wrt)
+            .unwrap();
     }
-    writer.persist(PersistAction::Flush).unwrap();
-    let mut buffer: Vec<u8> = writer.into_writer().into();
+    let mut buffer: Vec<u8> = wrt.into();
     {
         let mut reader = RecordReader::open(ArrayReader::from(&buffer[..]));
         for record in &records {

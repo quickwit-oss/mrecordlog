@@ -1,4 +1,5 @@
 use super::*;
+use crate::rolling::directory::Directory;
 use crate::{BlockRead, BlockWrite, PersistAction, BLOCK_NUM_BYTES};
 
 #[test]

@@ -10,12 +10,12 @@ use crate::error::{
 };
 use crate::mem::{MemQueue, QueuesSummary};
 use crate::record::{MultiPlexedRecord, MultiRecord};
-use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
-use crate::{mem, PersistAction, PersistPolicy, PersistState, Record, ResourceUsage};
+use crate::{mem, BlockWrite, PersistAction, PersistPolicy, PersistState, Record, ResourceUsage};
 
 pub struct MultiRecordLog {
-    record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
+    record_log_writer: crate::recordlog::RecordWriter,
+    wrt: RollingWriter,
     in_mem_queues: mem::MemQueues,
     next_persist: PersistState,
     // A simple buffer we reuse to avoid allocation.
@@ -92,9 +92,10 @@ impl MultiRecordLog {
             }
         }
         // io errors are non-recoverable
-        let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer()?;
+        let rolling_writer: RollingWriter = record_reader.into_writer()?;
         let mut multi_record_log = MultiRecordLog {
-            record_log_writer,
+            wrt: rolling_writer,
+            record_log_writer: Default::default(),
             in_mem_queues,
             next_persist: persist_policy.into(),
             multi_record_spare_buffer: Vec::new(),
@@ -105,8 +106,7 @@ impl MultiRecordLog {
 
     #[cfg(test)]
     pub fn list_file_numbers(&self) -> Vec<u64> {
-        let rolling_writer = self.record_log_writer.get_underlying_wrt();
-        rolling_writer.list_file_numbers()
+        self.wrt.list_file_numbers()
     }
 
     /// Creates a new queue.
@@ -118,7 +118,7 @@ impl MultiRecordLog {
             return Err(CreateQueueError::AlreadyExists);
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
-        self.record_log_writer.write_record(record)?;
+        self.record_log_writer.write_record(record, &mut self.wrt)?;
         self.persist(PersistAction::FlushAndFsync)?;
         self.in_mem_queues.create_queue(queue)?;
         Ok(())
@@ -128,7 +128,7 @@ impl MultiRecordLog {
         info!(queue = queue, "delete queue");
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
-        self.record_log_writer.write_record(record)?;
+        self.record_log_writer.write_record(record, &mut self.wrt)?;
         self.in_mem_queues.delete_queue(queue)?;
         self.run_gc_if_necessary()?;
         self.persist(PersistAction::FlushAndFsync)?;
@@ -179,7 +179,7 @@ impl MultiRecordLog {
             }
         }
         let position = position_opt.unwrap_or(next_position);
-        let file_number = self.record_log_writer.current_file().clone();
+        let file_number = self.wrt.current_file().clone();
 
         let mut multi_record_spare_buffer = std::mem::take(&mut self.multi_record_spare_buffer);
         MultiRecord::serialize(payloads, position, &mut multi_record_spare_buffer);
@@ -195,7 +195,7 @@ impl MultiRecordLog {
             queue,
             records,
         };
-        self.record_log_writer.write_record(record)?;
+        self.record_log_writer.write_record(record, &mut self.wrt)?;
         self.persist_on_policy()?;
 
         let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
@@ -219,7 +219,7 @@ impl MultiRecordLog {
                 queue: queue_id,
                 position: next_position,
             };
-            self.record_log_writer.write_record(record)?;
+            self.record_log_writer.write_record(record, &mut self.wrt)?;
             has_empty_queues = true
         }
         if has_empty_queues {
@@ -245,11 +245,13 @@ impl MultiRecordLog {
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
-        self.record_log_writer
-            .write_record(MultiPlexedRecord::Truncate {
+        self.record_log_writer.write_record(
+            MultiPlexedRecord::Truncate {
                 truncate_range,
                 queue,
-            })?;
+            },
+            &mut self.wrt,
+        )?;
         let removed_count = self
             .in_mem_queues
             .truncate(queue, truncate_range)
@@ -261,20 +263,16 @@ impl MultiRecordLog {
 
     fn run_gc_if_necessary(&mut self) -> io::Result<()> {
         debug!("run_gc_if_necessary");
-        if self
-            .record_log_writer
-            .directory()
-            .has_files_that_can_be_deleted()
-        {
+        if self.wrt.directory.has_files_that_can_be_deleted() {
             // We are about to delete files.
             // Let's make sure we record the offsets of the empty queues
             // so that we don't lose that information after dropping the files.
             //
             // But first we clone the current file number to make sure that the file that will
             // contain the truncate positions it self won't be GC'ed.
-            let _file_number = self.record_log_writer.current_file().clone();
+            let _file_number = self.wrt.current_file().clone();
             self.record_empty_queues_position()?;
-            self.record_log_writer.directory().gc()?;
+            self.wrt.directory.gc()?;
         }
         // only execute the following if we are above the debug  level in tokio tracing
         if event_enabled!(Level::DEBUG) {
@@ -310,7 +308,7 @@ impl MultiRecordLog {
 
     /// Flush and optionnally fsync data
     pub fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
-        self.record_log_writer.persist(persist_action)
+        self.wrt.persist(persist_action)
     }
 
     /// Returns the position of the last record appended to the queue.
@@ -325,7 +323,7 @@ impl MultiRecordLog {
 
     /// Return the amount of memory and disk space used by mrecordlog.
     pub fn resource_usage(&self) -> ResourceUsage {
-        let disk_used_bytes = self.record_log_writer.size();
+        let disk_used_bytes = self.wrt.size();
         let (memory_used_bytes, memory_allocated_bytes) = self.in_mem_queues.size();
         ResourceUsage {
             memory_used_bytes,

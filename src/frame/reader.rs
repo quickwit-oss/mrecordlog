@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::frame::{FrameType, FrameWriter, Header, HEADER_LEN};
+use crate::frame::{FrameType, Header, HEADER_LEN};
 use crate::rolling::{RollingReader, RollingWriter};
 use crate::{BlockRead, BLOCK_NUM_BYTES};
 
@@ -105,9 +105,9 @@ impl<R: BlockRead + Unpin> FrameReader<R> {
 }
 
 impl FrameReader<RollingReader> {
-    pub fn into_writer(self) -> io::Result<FrameWriter<RollingWriter>> {
+    pub fn into_writer(self) -> io::Result<RollingWriter> {
         let mut rolling_writer: RollingWriter = self.reader.into_writer()?;
         rolling_writer.forward(self.cursor)?;
-        Ok(FrameWriter::create(rolling_writer))
+        Ok(rolling_writer)
     }
 }

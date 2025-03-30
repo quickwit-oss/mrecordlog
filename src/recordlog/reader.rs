@@ -1,8 +1,7 @@
 use std::io;
 
 use crate::error::ReadRecordError;
-use crate::frame::{FrameReader, FrameWriter, ReadFrameError};
-use crate::recordlog::RecordWriter;
+use crate::frame::{FrameReader, ReadFrameError};
 use crate::rolling::{RollingReader, RollingWriter};
 use crate::{BlockRead, Serializable};
 
@@ -83,8 +82,7 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
 }
 
 impl RecordReader<RollingReader> {
-    pub fn into_writer(self) -> io::Result<RecordWriter<RollingWriter>> {
-        let frame_writer: FrameWriter<RollingWriter> = self.frame_reader.into_writer()?;
-        Ok(RecordWriter::from(frame_writer))
+    pub fn into_writer(self) -> io::Result<RollingWriter> {
+        self.frame_reader.into_writer()
     }
 }

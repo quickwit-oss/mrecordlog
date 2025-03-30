@@ -1,12 +1,11 @@
 use std::io;
 
-use crate::block_read_write::VecBlockWriter;
 use crate::frame::{FrameType, FrameWriter};
-use crate::rolling::{Directory, FileNumber, RollingWriter};
-use crate::{BlockWrite, PersistAction, Serializable};
+use crate::{BlockWrite, Serializable};
 
-pub struct RecordWriter<W> {
-    frame_writer: FrameWriter<W>,
+#[derive(Default)]
+pub struct RecordWriter {
+    frame_writer: FrameWriter,
     buffer: Vec<u8>,
 }
 
@@ -19,23 +18,7 @@ fn frame_type(is_first_frame: bool, is_last_frame: bool) -> FrameType {
     }
 }
 
-impl<W: BlockWrite + Unpin> From<FrameWriter<W>> for RecordWriter<W> {
-    fn from(frame_writer: FrameWriter<W>) -> Self {
-        RecordWriter {
-            frame_writer,
-            buffer: Vec::with_capacity(10_000),
-        }
-    }
-}
-
-impl<W: BlockWrite + Unpin> RecordWriter<W> {
-    #[cfg(test)]
-    pub fn into_writer(self) -> W {
-        self.frame_writer.into_writer()
-    }
-}
-
-impl<W: BlockWrite + Unpin> RecordWriter<W> {
+impl RecordWriter {
     /// Writes a record.
     ///
     /// Even if this call returns `Ok(())`, at this point the data
@@ -44,7 +27,11 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
     /// For instance, the data could be stale in a library level buffer,
     /// by a writer level buffer, or an application buffer,
     /// or could not be flushed to disk yet by the OS.
-    pub fn write_record<'a>(&mut self, record: impl Serializable<'a>) -> io::Result<()> {
+    pub fn write_record<'a>(
+        &mut self,
+        record: impl Serializable<'a>,
+        wrt: &mut impl BlockWrite,
+    ) -> io::Result<()> {
         let mut is_first_frame = true;
         self.buffer.clear();
         record.serialize(&mut self.buffer);
@@ -52,48 +39,19 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
         loop {
             let frame_payload_len = self
                 .frame_writer
-                .max_writable_frame_length()
+                .max_writable_frame_length(wrt)
                 .min(payload.len());
             let frame_payload = &payload[..frame_payload_len];
             payload = &payload[frame_payload_len..];
             let is_last_frame = payload.is_empty();
             let frame_type = frame_type(is_first_frame, is_last_frame);
-            self.frame_writer.write_frame(frame_type, frame_payload)?;
+            self.frame_writer
+                .write_frame(frame_type, frame_payload, wrt)?;
             is_first_frame = false;
             if is_last_frame {
                 break;
             }
         }
         Ok(())
-    }
-
-    /// Persist the data to disk, according to the persist_action.
-    pub fn persist(&mut self, persist_action: PersistAction) -> io::Result<()> {
-        self.frame_writer.persist(persist_action)
-    }
-
-    pub fn get_underlying_wrt(&self) -> &W {
-        self.frame_writer.get_underlying_wrt()
-    }
-}
-
-impl RecordWriter<RollingWriter> {
-    pub fn directory(&mut self) -> &mut Directory {
-        self.frame_writer.directory()
-    }
-
-    pub fn current_file(&mut self) -> &FileNumber {
-        self.get_underlying_wrt().current_file()
-    }
-
-    pub fn size(&self) -> usize {
-        self.get_underlying_wrt().size()
-    }
-}
-
-impl RecordWriter<VecBlockWriter> {
-    #[cfg(test)]
-    pub fn in_memory() -> Self {
-        FrameWriter::create(VecBlockWriter::default()).into()
     }
 }
