@@ -4,31 +4,36 @@ use std::ops::{RangeBounds, RangeToInclusive};
 use tracing::{info, warn};
 
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
-use crate::mem::{MemQueue, QueuesSummary};
-use crate::rolling::FileNumber;
+use crate::mem::MemQueue;
+use crate::page_directory::PageRangeRef;
 use crate::Record;
 
-#[derive(Default)]
-pub(crate) struct MemQueues {
-    queues: HashMap<String, MemQueue>,
+pub(crate) struct MemQueues<H = PageRangeRef> {
+    queues: HashMap<String, MemQueue<H>>,
 }
-impl MemQueues {
+
+impl<H> Default for MemQueues<H> {
+    fn default() -> MemQueues<H> {
+        MemQueues {
+            queues: Default::default(),
+        }
+    }
+}
+
+impl<H: Clone + Eq> MemQueues<H> {
     /// The file number argument is here unused. Its point is just to make sure we
     /// flushed the file before updating the in memory queue.
-    pub fn create_queue(&mut self, queue: &str) -> Result<(), AlreadyExists> {
-        if self.queues.contains_key(queue) {
+    pub fn create_queue(
+        &mut self,
+        queue_id: &str,
+        ref_count_handle: H,
+    ) -> Result<(), AlreadyExists> {
+        if self.queues.contains_key(queue_id) {
             return Err(AlreadyExists);
         }
-        self.queues.insert(queue.to_string(), MemQueue::default());
+        let mem_queue = MemQueue::with_next_position(0u64, ref_count_handle);
+        self.queues.insert(queue_id.to_string(), mem_queue);
         Ok(())
-    }
-
-    pub fn summary(&self) -> QueuesSummary {
-        let mut summary = QueuesSummary::default();
-        for (queue_name, queue) in &self.queues {
-            summary.queues.insert(queue_name.clone(), queue.summary());
-        }
-        summary
     }
 
     pub fn delete_queue(&mut self, queue: &str) -> Result<(), MissingQueue> {
@@ -41,7 +46,8 @@ impl MemQueues {
     }
 
     /// Returns all sub-queues which are currently empty.
-    pub fn empty_queues(&mut self) -> impl Iterator<Item = (&'_ str, &mut MemQueue)> + '_ {
+    #[cfg(test)]
+    pub fn empty_queues(&mut self) -> impl Iterator<Item = (&'_ str, &mut MemQueue<H>)> + '_ {
         self.queues.iter_mut().filter_map(|(queue, mem_queue)| {
             if mem_queue.is_empty() {
                 Some((queue.as_str(), mem_queue))
@@ -66,7 +72,7 @@ impl MemQueues {
         }
     }
 
-    pub(crate) fn get_queue(&self, queue: &str) -> Result<&MemQueue, MissingQueue> {
+    pub(crate) fn get_queue(&self, queue: &str) -> Result<&MemQueue<H>, MissingQueue> {
         // We do not rely on `entry` in order to avoid
         // the allocation.
         self.queues
@@ -74,7 +80,7 @@ impl MemQueues {
             .ok_or_else(|| MissingQueue(queue.to_string()))
     }
 
-    pub(crate) fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue, MissingQueue> {
+    pub(crate) fn get_queue_mut(&mut self, queue: &str) -> Result<&mut MemQueue<H>, MissingQueue> {
         // We do not rely on `entry` in order to avoid
         // the allocation.
         self.queues
@@ -85,12 +91,12 @@ impl MemQueues {
     pub fn append_record(
         &mut self,
         queue: &str,
-        file_number: &FileNumber,
+        ref_count_handle: &H,
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
         self.get_queue_mut(queue)?
-            .append_record(file_number, target_position, payload)
+            .append_record(ref_count_handle, target_position, payload)
     }
 
     pub fn contains_queue(&self, queue: &str) -> bool {
@@ -107,7 +113,7 @@ impl MemQueues {
     /// match, truncate it and make it go forward to the requested position.
     ///
     /// This operation is meant only to rebuild the in memory queue from its on-disk state.
-    pub fn ack_position(&mut self, queue_name: &str, next_position: u64) {
+    pub fn ack_position(&mut self, queue_name: &str, next_position: u64, ref_count_handle: &H) {
         if let Some(queue) = self.queues.get(queue_name) {
             // It is possible for `ack_position` to be called when a queue already exists.
             //
@@ -123,14 +129,14 @@ impl MemQueues {
                 self.queues.remove(queue_name);
                 self.queues.insert(
                     queue_name.to_string(),
-                    MemQueue::with_next_position(next_position),
+                    MemQueue::with_next_position(next_position, ref_count_handle.clone()),
                 );
             }
         } else {
             // The queue does not exist! Let's create it and set the right `next_position`.
             self.queues.insert(
                 queue_name.to_string(),
-                MemQueue::with_next_position(next_position),
+                MemQueue::with_next_position(next_position, ref_count_handle.clone()),
             );
         }
     }
@@ -154,9 +160,14 @@ impl MemQueues {
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub fn truncate(&mut self, queue: &str, position: RangeToInclusive<u64>) -> Option<usize> {
+    pub fn truncate(
+        &mut self,
+        queue: &str,
+        position: RangeToInclusive<u64>,
+        ref_count_handle: &H,
+    ) -> Option<usize> {
         if let Ok(queue) = self.get_queue_mut(queue) {
-            Some(queue.truncate_head(position))
+            Some(queue.truncate_head(position, ref_count_handle.clone()))
         } else {
             None
         }

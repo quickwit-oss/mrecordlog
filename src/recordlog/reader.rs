@@ -1,13 +1,9 @@
-use std::io;
-
 use crate::error::ReadRecordError;
-use crate::frame::{FrameReader, FrameWriter, ReadFrameError};
-use crate::recordlog::RecordWriter;
-use crate::rolling::{RollingReader, RollingWriter};
+use crate::frame::{FrameReader, ReadFrameError};
 use crate::{BlockRead, Serializable};
 
 pub struct RecordReader<R> {
-    frame_reader: FrameReader<R>,
+    pub(crate) frame_reader: FrameReader<R>,
     record_buffer: Vec<u8>,
     // true if we are in the middle of reading a multifragment record.
     // This is useful, as it makes it possible to drop a record
@@ -25,8 +21,8 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
         }
     }
 
-    pub fn read(&self) -> &R {
-        self.frame_reader.read()
+    pub fn start_session(&mut self) -> R::Session {
+        self.frame_reader.start_session()
     }
 
     /// Deserialize a record without actually consuming data.
@@ -37,8 +33,9 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
     /// Advance cursor and deserialize the next record.
     pub fn read_record<'a, S: Serializable<'a>>(
         &'a mut self,
+        session: &mut R::Session,
     ) -> Result<Option<S>, ReadRecordError> {
-        let has_record = self.go_next()?;
+        let has_record = self.go_next(session)?;
         if has_record {
             let record = self.record().ok_or(ReadRecordError::Corruption)?;
             Ok(Some(record))
@@ -49,9 +46,9 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
 
     // Attempts to position the reader to the next record and return
     // true or false whether such a record is available or not.
-    pub fn go_next(&mut self) -> Result<bool, ReadRecordError> {
+    pub fn go_next(&mut self, session: &mut R::Session) -> Result<bool, ReadRecordError> {
         loop {
-            let frame = self.frame_reader.read_frame();
+            let frame = self.frame_reader.read_frame(session);
             match frame {
                 Ok((frame_type, frame_payload)) => {
                     if frame_type.is_first_frame_of_record() {
@@ -79,12 +76,5 @@ impl<R: BlockRead + Unpin> RecordReader<R> {
                 }
             }
         }
-    }
-}
-
-impl RecordReader<RollingReader> {
-    pub fn into_writer(self) -> io::Result<RecordWriter<RollingWriter>> {
-        let frame_writer: FrameWriter<RollingWriter> = self.frame_reader.into_writer()?;
-        Ok(RecordWriter::from(frame_writer))
     }
 }

@@ -2,59 +2,40 @@ use std::ops::{Bound, RangeBounds, RangeToInclusive};
 
 use super::rolling_buffer::RollingBuffer;
 use crate::error::AppendError;
-use crate::mem::QueueSummary;
-use crate::rolling::FileNumber;
+use crate::page_directory::PageRangeRef;
 use crate::Record;
 
 #[derive(Clone)]
-struct RecordMeta {
+struct RecordMeta<H> {
     start_offset: usize,
     // in a vec of RecordMeta, this field should be set only on the last record
     // which relate to that File.
-    file_number: Option<FileNumber>,
+    ref_count_handle: Option<H>,
     position: u64,
 }
 
-#[derive(Default)]
-pub(crate) struct MemQueue {
+pub(crate) struct MemQueue<H = PageRangeRef> {
     // Concatenated records
     concatenated_records: RollingBuffer,
     start_position: u64,
-    record_metas: Vec<RecordMeta>,
+    record_metas: Vec<RecordMeta<H>>,
+    // We make sure to keep the last truncate record because it helps us keeping track of the queue
+    // position even when the queue is empty.
+    record_position_ref_count: H,
 }
 
-impl MemQueue {
-    pub fn with_next_position(next_position: u64) -> Self {
+impl<H: Clone + PartialEq> MemQueue<H> {
+    pub fn with_next_position(next_position: u64, record_position_ref_count: H) -> Self {
         MemQueue {
             concatenated_records: RollingBuffer::new(),
             start_position: next_position,
             record_metas: Vec::new(),
-        }
-    }
-
-    pub fn summary(&self) -> QueueSummary {
-        QueueSummary {
-            start: self.start_position(),
-            end: self.last_position(),
-            file_number: self.first_file_number(),
+            record_position_ref_count: record_position_ref_count,
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.record_metas.is_empty()
-    }
-
-    pub(crate) fn first_file_number(&self) -> Option<u64> {
-        let file_number: &FileNumber = self
-            .record_metas
-            .iter()
-            .filter_map(|record_meta| record_meta.file_number.as_ref())
-            .next()?;
-        Some(file_number.file_number())
-    }
-
-    pub(crate) fn start_position(&self) -> u64 {
-        self.start_position
     }
 
     /// Returns the position of the last record appended to the queue.
@@ -84,7 +65,7 @@ impl MemQueue {
     /// AppendError if the record is strangely in the past or is too much in the future.
     pub fn append_record(
         &mut self,
-        file_number: &FileNumber,
+        ref_count_handle: &H,
         target_position: u64,
         payload: &[u8],
     ) -> Result<(), AppendError> {
@@ -97,19 +78,19 @@ impl MemQueue {
             self.start_position = target_position;
         }
 
-        let file_number = if let Some(record_meta) = self.record_metas.last_mut() {
-            if record_meta.file_number.as_ref() == Some(file_number) {
-                record_meta.file_number.take().unwrap()
+        let ref_count_handle = if let Some(record_meta) = self.record_metas.last_mut() {
+            if record_meta.ref_count_handle.as_ref() == Some(ref_count_handle) {
+                record_meta.ref_count_handle.take().unwrap()
             } else {
-                file_number.clone()
+                ref_count_handle.clone()
             }
         } else {
-            file_number.clone()
+            ref_count_handle.clone()
         };
 
         let record_meta = RecordMeta {
             start_offset: self.concatenated_records.len(),
-            file_number: Some(file_number),
+            ref_count_handle: Some(ref_count_handle),
             position: target_position,
         };
         self.record_metas.push(record_meta);
@@ -164,11 +145,18 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub fn truncate_head(&mut self, truncate_range: RangeToInclusive<u64>) -> usize {
+    pub fn truncate_head(
+        &mut self,
+        truncate_range: RangeToInclusive<u64>,
+        ref_count_handle: H,
+    ) -> usize {
         let truncate_up_to_pos = truncate_range.end;
         if self.start_position > truncate_up_to_pos {
             return 0;
         }
+
+        self.record_position_ref_count = ref_count_handle;
+
         if truncate_up_to_pos + 1 >= self.next_position() {
             self.start_position = truncate_up_to_pos + 1;
             self.concatenated_records.clear();
@@ -193,11 +181,11 @@ impl MemQueue {
 
     pub fn size(&self) -> usize {
         self.concatenated_records.len()
-            + self.record_metas.len() * std::mem::size_of::<RecordMeta>()
+            + self.record_metas.len() * std::mem::size_of::<RecordMeta<H>>()
     }
 
     pub fn capacity(&self) -> usize {
         self.concatenated_records.capacity()
-            + self.record_metas.capacity() * std::mem::size_of::<RecordMeta>()
+            + self.record_metas.capacity() * std::mem::size_of::<RecordMeta<H>>()
     }
 }

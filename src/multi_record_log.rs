@@ -3,19 +3,33 @@ use std::ops::{RangeBounds, RangeToInclusive};
 use std::path::Path;
 
 use bytes::Buf;
-use tracing::{debug, event_enabled, info, warn, Level};
+use tracing::{debug, info, warn};
 
 use crate::error::{
     AppendError, CreateQueueError, DeleteQueueError, MissingQueue, ReadRecordError, TruncateError,
 };
-use crate::mem::{MemQueue, QueuesSummary};
+use crate::page_directory::{PageListReader, PageListWriter, PageRangeRef};
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
-use crate::rolling::RollingWriter;
 use crate::{mem, PersistAction, PersistPolicy, PersistState, Record, ResourceUsage};
 
+#[derive(Copy, Clone, Debug)]
+pub struct Preferences {
+    pub persist_policy: PersistPolicy,
+    pub num_bytes: u64,
+}
+
+impl Default for Preferences {
+    fn default() -> Preferences {
+        Preferences {
+            persist_policy: PersistPolicy::Always(PersistAction::Flush),
+            num_bytes: 10_000_000,
+        }
+    }
+}
+
 pub struct MultiRecordLog {
-    record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
+    record_log_writer: crate::recordlog::RecordWriter<PageListWriter>,
     in_mem_queues: mem::MemQueues,
     next_persist: PersistState,
     // A simple buffer we reuse to avoid allocation.
@@ -25,26 +39,30 @@ pub struct MultiRecordLog {
 impl MultiRecordLog {
     /// Open the multi record log, flushing after each operation, but not fsyncing.
     pub fn open(directory_path: &Path) -> Result<Self, ReadRecordError> {
-        Self::open_with_prefs(directory_path, PersistPolicy::Always(PersistAction::Flush))
-    }
-
-    pub fn summary(&self) -> QueuesSummary {
-        self.in_mem_queues.summary()
+        Self::open_with_prefs(directory_path, Preferences::default())
     }
 
     /// Open the multi record log, syncing following the provided policy.
     pub fn open_with_prefs(
         directory_path: &Path,
-        persist_policy: PersistPolicy,
+        preferences: Preferences,
     ) -> Result<Self, ReadRecordError> {
+        let Preferences {
+            persist_policy,
+            num_bytes,
+        } = preferences;
         // io errors are non-recoverable
-        let rolling_reader = crate::rolling::RollingReader::open(directory_path)?;
-        let mut record_reader = crate::recordlog::RecordReader::open(rolling_reader);
+        // TODO set num pages
+        let queue_file = directory_path.join(&Path::new("mrecordlog.wal"));
+        // TODO stop hard coding
+        let directory = crate::page_directory::Directory::create_or_open(&queue_file, num_bytes)?;
+        let page_reader = PageListReader::new(directory)?;
+        let mut record_reader = crate::recordlog::RecordReader::open(page_reader);
         let mut in_mem_queues = crate::mem::MemQueues::default();
         debug!("loading wal");
         loop {
-            let file_number = record_reader.read().current_file().clone();
-            let Ok(record) = record_reader.read_record::<MultiPlexedRecord>() else {
+            let mut session = record_reader.start_session();
+            let Ok(record) = record_reader.read_record::<MultiPlexedRecord>(&mut session) else {
                 warn!("Detected corrupted record: some data may have been lost");
                 continue;
             };
@@ -56,7 +74,7 @@ impl MultiRecordLog {
                         position,
                     } => {
                         if !in_mem_queues.contains_queue(queue) {
-                            in_mem_queues.ack_position(queue, position);
+                            in_mem_queues.ack_position(queue, position, &session);
                         }
                         for record in records {
                             // if this fails, it means some corruption wasn't detected at a lower
@@ -68,7 +86,7 @@ impl MultiRecordLog {
                             // corruption. In that case, maybe we should ack_position() and try
                             // to insert again?
                             in_mem_queues
-                                .append_record(queue, &file_number, position, payload)
+                                .append_record(queue, &session, position, payload)
                                 .map_err(|_| ReadRecordError::Corruption)?;
                         }
                     }
@@ -76,10 +94,10 @@ impl MultiRecordLog {
                         truncate_range,
                         queue,
                     } => {
-                        in_mem_queues.truncate(queue, truncate_range);
+                        in_mem_queues.truncate(queue, truncate_range, &session);
                     }
                     MultiPlexedRecord::RecordPosition { queue, position } => {
-                        in_mem_queues.ack_position(queue, position);
+                        in_mem_queues.ack_position(queue, position, &session);
                     }
                     MultiPlexedRecord::DeleteQueue { queue, position: _ } => {
                         // can fail if we don't know about the queue getting deleted. It's fine to
@@ -92,21 +110,14 @@ impl MultiRecordLog {
             }
         }
         // io errors are non-recoverable
-        let record_log_writer: RecordWriter<RollingWriter> = record_reader.into_writer()?;
-        let mut multi_record_log = MultiRecordLog {
+        let record_log_writer: RecordWriter<PageListWriter> = record_reader.into_writer()?;
+        let multi_record_log = MultiRecordLog {
             record_log_writer,
             in_mem_queues,
             next_persist: persist_policy.into(),
             multi_record_spare_buffer: Vec::new(),
         };
-        multi_record_log.run_gc_if_necessary()?;
         Ok(multi_record_log)
-    }
-
-    #[cfg(test)]
-    pub fn list_file_numbers(&self) -> Vec<u64> {
-        let rolling_writer = self.record_log_writer.get_underlying_wrt();
-        rolling_writer.list_file_numbers()
     }
 
     /// Creates a new queue.
@@ -117,10 +128,11 @@ impl MultiRecordLog {
         if self.queue_exists(queue) {
             return Err(CreateQueueError::AlreadyExists);
         }
+        let mut session = self.record_log_writer.start_session()?;
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
-        self.record_log_writer.write_record(record)?;
+        self.record_log_writer.write_record(record, &mut session)?;
         self.persist(PersistAction::FlushAndFsync)?;
-        self.in_mem_queues.create_queue(queue)?;
+        self.in_mem_queues.create_queue(queue, session)?;
         Ok(())
     }
 
@@ -128,9 +140,9 @@ impl MultiRecordLog {
         info!(queue = queue, "delete queue");
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
-        self.record_log_writer.write_record(record)?;
+        let mut session = self.record_log_writer.start_session()?;
+        self.record_log_writer.write_record(record, &mut session)?;
         self.in_mem_queues.delete_queue(queue)?;
-        self.run_gc_if_necessary()?;
         self.persist(PersistAction::FlushAndFsync)?;
         Ok(())
     }
@@ -179,7 +191,6 @@ impl MultiRecordLog {
             }
         }
         let position = position_opt.unwrap_or(next_position);
-        let file_number = self.record_log_writer.current_file().clone();
 
         let mut multi_record_spare_buffer = std::mem::take(&mut self.multi_record_spare_buffer);
         MultiRecord::serialize(payloads, position, &mut multi_record_spare_buffer);
@@ -190,12 +201,15 @@ impl MultiRecordLog {
         }
 
         let records = MultiRecord::new_unchecked(&multi_record_spare_buffer);
-        let record = MultiPlexedRecord::AppendRecords {
+        let multi_record = MultiPlexedRecord::AppendRecords {
             position,
             queue,
             records,
         };
-        self.record_log_writer.write_record(record)?;
+
+        let mut session: PageRangeRef = self.record_log_writer.start_session()?;
+        self.record_log_writer
+            .write_record(multi_record, &mut session)?;
         self.persist_on_policy()?;
 
         let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
@@ -203,31 +217,12 @@ impl MultiRecordLog {
         for record in records {
             // we just serialized it, we know it's valid
             let (position, payload) = record.unwrap();
-            mem_queue.append_record(&file_number, position, payload)?;
+            mem_queue.append_record(&session, position, payload)?;
             max_position = position;
         }
 
         self.multi_record_spare_buffer = multi_record_spare_buffer;
         Ok(Some(max_position))
-    }
-
-    fn record_empty_queues_position(&mut self) -> io::Result<()> {
-        let mut has_empty_queues = false;
-        for (queue_id, queue) in self.in_mem_queues.empty_queues() {
-            let next_position = queue.next_position();
-            let record = MultiPlexedRecord::RecordPosition {
-                queue: queue_id,
-                position: next_position,
-            };
-            self.record_log_writer.write_record(record)?;
-            has_empty_queues = true
-        }
-        if has_empty_queues {
-            // We need to fsync here! We are remove files from the FS
-            // so we need to make sure our empty queue positions are properly persisted.
-            self.persist(PersistAction::FlushAndFsync)?;
-        }
-        Ok(())
     }
 
     /// Truncates the queue up to a given `position`, included. This method immediately
@@ -245,47 +240,20 @@ impl MultiRecordLog {
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
+        let mut session = self.record_log_writer.start_session()?;
+        let truncate_record = MultiPlexedRecord::Truncate {
+            truncate_range,
+            queue,
+        };
         self.record_log_writer
-            .write_record(MultiPlexedRecord::Truncate {
-                truncate_range,
-                queue,
-            })?;
+            .write_record(truncate_record, &mut session)?;
         let removed_count = self
             .in_mem_queues
-            .truncate(queue, truncate_range)
+            .truncate(queue, truncate_range, &session)
             .unwrap_or(0);
-        self.run_gc_if_necessary()?;
+        // self.run_gc_if_necessary()?;
         self.persist_on_policy()?;
         Ok(removed_count)
-    }
-
-    fn run_gc_if_necessary(&mut self) -> io::Result<()> {
-        debug!("run_gc_if_necessary");
-        if self
-            .record_log_writer
-            .directory()
-            .has_files_that_can_be_deleted()
-        {
-            // We are about to delete files.
-            // Let's make sure we record the offsets of the empty queues
-            // so that we don't lose that information after dropping the files.
-            //
-            // But first we clone the current file number to make sure that the file that will
-            // contain the truncate positions it self won't be GC'ed.
-            let _file_number = self.record_log_writer.current_file().clone();
-            self.record_empty_queues_position()?;
-            self.record_log_writer.directory().gc()?;
-        }
-        // only execute the following if we are above the debug  level in tokio tracing
-        if event_enabled!(Level::DEBUG) {
-            for queue in self.list_queues() {
-                let queue: &MemQueue = self.in_mem_queues.get_queue(queue).unwrap();
-                let first_pos = queue.range(..).next().map(|record| record.position);
-                let last_pos = queue.last_position();
-                debug!(first_pos=?first_pos, last_pos=?last_pos, "queue positions after gc");
-            }
-        }
-        Ok(())
     }
 
     pub fn range<R>(
@@ -323,14 +291,17 @@ impl MultiRecordLog {
         self.in_mem_queues.last_record(queue)
     }
 
-    /// Return the amount of memory and disk space used by mrecordlog.
+    // Return the amount of memory and disk space used by mrecordlog.
     pub fn resource_usage(&self) -> ResourceUsage {
-        let disk_used_bytes = self.record_log_writer.size();
+        let page_list_writer = self.record_log_writer.get_underlying_wrt();
+        let num_pages = page_list_writer.num_pages();
+        let num_used_pages = page_list_writer.num_used_pages();
         let (memory_used_bytes, memory_allocated_bytes) = self.in_mem_queues.size();
         ResourceUsage {
             memory_used_bytes,
             memory_allocated_bytes,
-            disk_used_bytes,
+            num_pages,
+            num_used_pages,
         }
     }
 }

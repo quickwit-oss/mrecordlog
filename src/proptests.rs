@@ -7,20 +7,26 @@ use proptest::prop_oneof;
 use proptest::strategy::{Just, Strategy};
 use tempfile::TempDir;
 
+use crate::multi_record_log::Preferences;
 use crate::record::{MultiPlexedRecord, MultiRecord};
-use crate::{MultiRecordLog, Record, Serializable};
+use crate::{MultiRecordLog, PersistAction, PersistPolicy, Record, Serializable};
 
 struct PropTestEnv {
     tempdir: TempDir,
     record_log: MultiRecordLog,
     state: HashMap<&'static str, (Range<u64>, u64)>,
-    block_to_write: Vec<u8>,
+    record_to_write: Vec<u8>,
+    preferences: Preferences,
 }
 
 impl PropTestEnv {
-    pub fn new(block_size: usize) -> Self {
+    pub fn new(record_len: usize) -> Self {
+        Self::new_with_prefs(record_len, Preferences::default())
+    }
+
+    pub fn new_with_prefs(record_len: usize, preferences: Preferences) -> Self {
         let tempdir = tempfile::tempdir().unwrap();
-        let mut record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        let mut record_log = MultiRecordLog::open_with_prefs(tempdir.path(), preferences).unwrap();
         record_log.create_queue("q1").unwrap();
         record_log.create_queue("q2").unwrap();
         let mut state = HashMap::default();
@@ -30,7 +36,8 @@ impl PropTestEnv {
             tempdir,
             record_log,
             state,
-            block_to_write: vec![b'A'; block_size],
+            record_to_write: vec![b'A'; record_len],
+            preferences,
         }
     }
 
@@ -59,7 +66,8 @@ impl PropTestEnv {
     }
 
     pub fn reload(&mut self) {
-        self.record_log = MultiRecordLog::open(self.tempdir.path()).unwrap();
+        self.record_log =
+            MultiRecordLog::open_with_prefs(self.tempdir.path(), self.preferences).unwrap();
         for (queue, (_range, count)) in &self.state {
             assert_eq!(
                 self.record_log.range(queue, ..).unwrap().count() as u64,
@@ -98,7 +106,7 @@ impl PropTestEnv {
             .append_records(
                 queue,
                 Some(new_pos),
-                std::iter::repeat(&self.block_to_write[..]).take(count as usize),
+                std::iter::repeat(&self.record_to_write[..]).take(count as usize),
             )
             .unwrap();
 
@@ -238,7 +246,13 @@ fn test_scenario_big_records() {
         },
         Reopen,
     ];
-    let mut env = PropTestEnv::new(1 << 26);
+    let mut env = PropTestEnv::new_with_prefs(
+        1 << 26,
+        Preferences {
+            persist_policy: PersistPolicy::Always(PersistAction::Flush),
+            num_bytes: 500_000_000,
+        },
+    ); // 64mb
     for op in ops {
         env.apply(op);
     }

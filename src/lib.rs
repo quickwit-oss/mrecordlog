@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::fs::File;
+use std::io::{self, BufWriter, Cursor};
 
 mod block_read_write;
 
@@ -6,11 +8,12 @@ pub use block_read_write::{BlockRead, BlockWrite, BLOCK_NUM_BYTES};
 pub mod error;
 mod frame;
 mod mem;
+
 mod multi_record_log;
+mod page_directory;
 mod persist_policy;
 mod record;
 mod recordlog;
-mod rolling;
 
 pub use mem::{QueueSummary, QueuesSummary};
 pub use multi_record_log::MultiRecordLog;
@@ -39,12 +42,15 @@ pub struct ResourceUsage {
     pub memory_used_bytes: usize,
     /// Capacity allocated, a part of which may be unused right now
     pub memory_allocated_bytes: usize,
-    /// Disk size used
-    pub disk_used_bytes: usize,
+    pub num_pages: u32,
+    pub num_used_pages: u32,
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod mockfile;
 
 #[cfg(test)]
 mod proptests;
@@ -65,3 +71,45 @@ impl<'a> Serializable<'a> for &'a str {
         std::str::from_utf8(buffer).ok()
     }
 }
+
+pub trait FileLikeWrite: io::Write + io::Seek {
+    fn fsyncdata(&mut self) -> io::Result<()>;
+    fn set_len(&mut self, num_bytes: u64) -> io::Result<()>;
+}
+
+pub trait FileLike: io::Read + FileLikeWrite {}
+
+impl<F: FileLikeWrite> FileLikeWrite for BufWriter<F> {
+    fn fsyncdata(&mut self) -> io::Result<()> {
+        self.get_mut().fsyncdata()
+    }
+
+    fn set_len(&mut self, num_bytes: u64) -> io::Result<()> {
+        self.get_mut().set_len(num_bytes)
+    }
+}
+
+impl FileLikeWrite for File {
+    fn fsyncdata(&mut self) -> io::Result<()> {
+        self.sync_data()
+    }
+
+    fn set_len(&mut self, num_bytes: u64) -> io::Result<()> {
+        File::set_len(self, num_bytes)
+    }
+}
+
+impl FileLike for File {}
+
+impl FileLikeWrite for Cursor<Vec<u8>> {
+    fn fsyncdata(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn set_len(&mut self, num_bytes: u64) -> io::Result<()> {
+        self.get_mut().resize(num_bytes as usize, 0u8);
+        Ok(())
+    }
+}
+
+impl FileLike for Cursor<Vec<u8>> {}

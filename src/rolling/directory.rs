@@ -75,12 +75,12 @@ impl Directory {
     }
 
     /// Get the first still used FileNumber.
-    pub fn first_file_number(&self) -> &FileNumber {
+    pub(crate) fn first_file_number(&self) -> &FileNumber {
         self.files.first()
     }
 
     /// Returns true if some file could be GCed.
-    pub fn has_files_that_can_be_deleted(&self) -> bool {
+    pub(crate) fn is_gc_necessary(&self) -> bool {
         self.files.count() >= 2 && self.files.first().can_be_deleted()
     }
 
@@ -168,7 +168,13 @@ fn read_block(file: &mut File, block: &mut [u8; BLOCK_NUM_BYTES]) -> io::Result<
 }
 
 impl BlockRead for RollingReader {
-    fn next_block(&mut self) -> io::Result<bool> {
+    type Session = FileNumber;
+
+    fn start_session(&self) -> Self::Session {
+        self.current_file().clone()
+    }
+
+    fn next_block(&mut self, _session: &mut Self::Session) -> io::Result<bool> {
         let success = read_block(&mut self.file, &mut self.block)?;
         if success {
             self.block_id += 1;
@@ -225,6 +231,8 @@ impl RollingWriter {
         &self.file_number
     }
 
+    /// Returns number of bytes occupied on the disk by the
+    /// different files of the directory
     pub fn size(&self) -> usize {
         self.directory.files.count() * FILE_NUM_BYTES
     }
@@ -238,7 +246,13 @@ impl RollingWriter {
 }
 
 impl BlockWrite for RollingWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+    type Session = FileNumber;
+
+    fn start_write_session(&mut self) -> io::Result<Self::Session> {
+        Ok(self.current_file().clone())
+    }
+
+    fn write(&mut self, buf: &[u8], _session: &mut Self::Session) -> io::Result<()> {
         if buf.is_empty() {
             return Ok(());
         }
