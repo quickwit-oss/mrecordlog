@@ -200,7 +200,7 @@ pub(crate) struct MultiRecord<'a> {
 }
 
 impl MultiRecord<'_> {
-    pub fn new(buffer: &[u8]) -> Result<MultiRecord, MultiRecordCorruption> {
+    pub fn new(buffer: &[u8]) -> Result<MultiRecord<'_>, MultiRecordCorruption> {
         let mut mrecord = MultiRecord::new_unchecked(buffer);
 
         // verify the content is not corrupted
@@ -213,7 +213,7 @@ impl MultiRecord<'_> {
         Ok(mrecord)
     }
 
-    pub fn new_unchecked(buffer: &[u8]) -> MultiRecord {
+    pub fn new_unchecked(buffer: &[u8]) -> MultiRecord<'_> {
         MultiRecord {
             buffer,
             byte_offset: 0,

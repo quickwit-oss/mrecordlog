@@ -63,7 +63,7 @@ impl MemQueue {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self) -> Option<Record> {
+    pub fn last_record(&self) -> Option<Record<'_>> {
         self.record_metas.last().map(|record| Record {
             position: record.position,
             payload: self.concatenated_records.get_range(record.start_offset..),
@@ -126,7 +126,7 @@ impl MemQueue {
             .binary_search_by_key(&position, |record| record.position)
     }
 
-    pub fn range<R>(&self, range: R) -> impl Iterator<Item = Record> + '_
+    pub fn range<R>(&self, range: R) -> impl Iterator<Item = Record<'_>> + '_
     where R: RangeBounds<u64> + 'static {
         let start_idx: usize = match range.start_bound() {
             Bound::Included(&start_from) => {

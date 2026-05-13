@@ -55,7 +55,7 @@ impl MemQueues {
         &self,
         queue: &str,
         range: R,
-    ) -> Result<impl Iterator<Item = Record> + '_, MissingQueue>
+    ) -> Result<impl Iterator<Item = Record<'_>> + '_, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {
@@ -141,7 +141,7 @@ impl MemQueues {
     }
 
     /// Returns the last record stored in the queue.
-    pub fn last_record(&self, queue: &str) -> Result<Option<Record>, MissingQueue> {
+    pub fn last_record(&self, queue: &str) -> Result<Option<Record<'_>>, MissingQueue> {
         Ok(self.get_queue(queue)?.last_record())
     }
 

@@ -292,7 +292,7 @@ impl MultiRecordLog {
         &self,
         queue: &str,
         range: R,
-    ) -> Result<impl Iterator<Item = Record>, MissingQueue>
+    ) -> Result<impl Iterator<Item = Record<'_>>, MissingQueue>
     where
         R: RangeBounds<u64> + 'static,
     {

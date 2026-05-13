@@ -50,7 +50,7 @@ impl RollingBuffer {
         self.buffer.extend(slice.iter().copied());
     }
 
-    pub fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<[u8]> {
+    pub fn get_range(&self, bounds: impl RangeBounds<usize>) -> Cow<'_, [u8]> {
         let start = match bounds.start_bound() {
             Bound::Included(pos) => *pos,
             Bound::Excluded(pos) => pos + 1,
