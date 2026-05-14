@@ -76,12 +76,14 @@ impl PropTestEnv {
             .record_log
             .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
             .unwrap()
+            .last_position
             .unwrap();
 
         assert!(self
             .record_log
             .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
             .unwrap()
+            .last_position
             .is_none());
 
         assert_eq!(new_pos, res);
@@ -93,7 +95,7 @@ impl PropTestEnv {
         let state = self.state.get_mut(queue).unwrap();
 
         let new_pos = state.0.end + skip_one_pos as u64;
-        let res = self
+        let outcome = self
             .record_log
             .append_records(
                 queue,
@@ -103,7 +105,7 @@ impl PropTestEnv {
             .unwrap();
 
         if count != 0 {
-            let res = res.unwrap();
+            let res = outcome.last_position.unwrap();
             assert_eq!(new_pos + count - 1, res);
             state.0.end = new_pos + count;
             state.1 += count;
@@ -114,7 +116,11 @@ impl PropTestEnv {
         let state = self.state.get_mut(queue).unwrap();
         if state.0.contains(&pos) {
             state.0.start = pos + 1;
-            state.1 -= self.record_log.truncate(queue, ..=pos).unwrap() as u64;
+            state.1 -= self
+                .record_log
+                .truncate(queue, ..=pos)
+                .unwrap()
+                .evicted_records as u64;
         } else if pos >= state.0.end {
             // advance the queue to the position.
             state.0 = (pos + 1)..(pos + 1);
@@ -342,7 +348,8 @@ fn test_multi_record() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"1"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(0)
         );
     }
@@ -351,7 +358,8 @@ fn test_multi_record() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"22"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(1)
         );
     }
@@ -374,7 +382,8 @@ fn test_multi_record() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"hello"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(2)
         );
     }

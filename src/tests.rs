@@ -174,7 +174,8 @@ fn test_multi_record_position_known_after_truncate() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"1"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(0)
         );
     }
@@ -183,7 +184,8 @@ fn test_multi_record_position_known_after_truncate() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"2"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(1)
         );
         assert_eq!(&multi_record_log.list_file_numbers(), &[0]);
@@ -198,7 +200,8 @@ fn test_multi_record_position_known_after_truncate() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"hello"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(2)
         );
     }
@@ -217,7 +220,8 @@ fn test_multi_insert_truncate() {
                     None,
                     [b"1", b"2", b"3", b"4"].into_iter().map(|r| r.as_slice())
                 )
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(3)
         );
         assert_eq!(
@@ -275,20 +279,23 @@ fn test_truncate_range_correct_pos() {
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"1"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(0)
         );
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"2"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(1)
         );
         multi_record_log.truncate("queue", ..=1).unwrap();
         assert_eq!(
             multi_record_log
                 .append_record("queue", None, &b"3"[..])
-                .unwrap(),
+                .unwrap()
+                .last_position,
             Some(2)
         );
         assert_eq!(

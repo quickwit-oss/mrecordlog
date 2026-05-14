@@ -33,11 +33,13 @@ pub trait BlockWrite {
     fn num_bytes_remaining_in_block(&self) -> usize;
 }
 
+#[cfg(test)]
 pub struct ArrayReader<'a> {
     block: [u8; BLOCK_NUM_BYTES],
     data: &'a [u8],
 }
 
+#[cfg(test)]
 impl<'a> From<&'a [u8]> for ArrayReader<'a> {
     fn from(data: &'a [u8]) -> Self {
         assert!(data.len() >= BLOCK_NUM_BYTES);
@@ -48,6 +50,7 @@ impl<'a> From<&'a [u8]> for ArrayReader<'a> {
     }
 }
 
+#[cfg(test)]
 impl BlockRead for ArrayReader<'_> {
     fn next_block(&mut self) -> io::Result<bool> {
         if self.data.len() < BLOCK_NUM_BYTES {

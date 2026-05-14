@@ -43,6 +43,36 @@ pub struct ResourceUsage {
     pub disk_used_bytes: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppendOutcome {
+    /// Position of the last record appended, or `None` for an idempotent no-op
+    /// (empty payloads, or `position_opt` already past the queue's head).
+    pub last_position: Option<u64>,
+    /// Bytes appended to the WAL: frame headers + payload + any end-of-block padding
+    /// written ahead of the record. Two identical calls may report different values
+    /// depending on where the write cursor sat within the current block (a frame crossing
+    /// a block boundary incurs padding). `0` for an idempotent no-op.
+    pub wal_bytes_written: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TruncateOutcome {
+    /// Number of records evicted from the in-memory queue by this call. This is a delta:
+    /// a truncate at a position already covered by a previous truncate reports `0`.
+    pub evicted_records: usize,
+    pub wal_bytes_written: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeleteQueueOutcome {
+    pub wal_bytes_written: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CreateQueueOutcome {
+    pub wal_bytes_written: u64,
+}
+
 #[cfg(test)]
 mod tests;
 
