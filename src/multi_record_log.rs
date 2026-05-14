@@ -12,7 +12,10 @@ use crate::mem::{MemQueue, QueuesSummary};
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::recordlog::RecordWriter;
 use crate::rolling::RollingWriter;
-use crate::{mem, PersistAction, PersistPolicy, PersistState, Record, ResourceUsage};
+use crate::{
+    mem, AppendOutcome, CreateQueueOutcome, DeleteQueueOutcome, PersistAction, PersistPolicy,
+    PersistState, Record, ResourceUsage, TruncateOutcome,
+};
 
 pub struct MultiRecordLog {
     record_log_writer: crate::recordlog::RecordWriter<RollingWriter>,
@@ -99,7 +102,8 @@ impl MultiRecordLog {
             next_persist: persist_policy.into(),
             multi_record_spare_buffer: Vec::new(),
         };
-        multi_record_log.run_gc_if_necessary()?;
+        // Bytes written by recovery-time GC are not surfaced to any user-facing API.
+        let _ = multi_record_log.run_gc_if_necessary()?;
         Ok(multi_record_log)
     }
 
@@ -112,27 +116,31 @@ impl MultiRecordLog {
     /// Creates a new queue.
     ///
     /// Returns an error if the queue already exists.
-    pub fn create_queue(&mut self, queue: &str) -> Result<(), CreateQueueError> {
+    pub fn create_queue(&mut self, queue: &str) -> Result<CreateQueueOutcome, CreateQueueError> {
         info!(queue = queue, "create queue");
         if self.queue_exists(queue) {
             return Err(CreateQueueError::AlreadyExists);
         }
         let record = MultiPlexedRecord::RecordPosition { queue, position: 0 };
-        self.record_log_writer.write_record(record)?;
+        let num_bytes_written = self.record_log_writer.write_record(record)?;
         self.persist(PersistAction::FlushAndFsync)?;
         self.in_mem_queues.create_queue(queue)?;
-        Ok(())
+        Ok(CreateQueueOutcome {
+            wal_bytes_written: num_bytes_written,
+        })
     }
 
-    pub fn delete_queue(&mut self, queue: &str) -> Result<(), DeleteQueueError> {
+    pub fn delete_queue(&mut self, queue: &str) -> Result<DeleteQueueOutcome, DeleteQueueError> {
         info!(queue = queue, "delete queue");
         let position = self.in_mem_queues.next_position(queue)?;
         let record = MultiPlexedRecord::DeleteQueue { queue, position };
-        self.record_log_writer.write_record(record)?;
+        let mut num_bytes_written = self.record_log_writer.write_record(record)?;
         self.in_mem_queues.delete_queue(queue)?;
-        self.run_gc_if_necessary()?;
+        num_bytes_written += self.run_gc_if_necessary()?;
         self.persist(PersistAction::FlushAndFsync)?;
-        Ok(())
+        Ok(DeleteQueueOutcome {
+            wal_bytes_written: num_bytes_written,
+        })
     }
 
     pub fn queue_exists(&self, queue: &str) -> bool {
@@ -153,7 +161,7 @@ impl MultiRecordLog {
         queue: &str,
         position_opt: Option<u64>,
         payload: impl Buf,
-    ) -> Result<Option<u64>, AppendError> {
+    ) -> Result<AppendOutcome, AppendError> {
         self.append_records(queue, position_opt, std::iter::once(payload))
     }
 
@@ -168,12 +176,15 @@ impl MultiRecordLog {
         queue: &str,
         position_opt: Option<u64>,
         payloads: T,
-    ) -> Result<Option<u64>, AppendError> {
+    ) -> Result<AppendOutcome, AppendError> {
         let next_position = self.in_mem_queues.next_position(queue)?;
         if let Some(position) = position_opt {
             // we accept position in the future, and move forward as required.
             if position + 1 == next_position {
-                return Ok(None);
+                return Ok(AppendOutcome {
+                    last_position: None,
+                    wal_bytes_written: 0,
+                });
             } else if position < next_position {
                 return Err(AppendError::Past);
             }
@@ -186,7 +197,10 @@ impl MultiRecordLog {
         if multi_record_spare_buffer.is_empty() {
             self.multi_record_spare_buffer = multi_record_spare_buffer;
             // empty transaction: don't persist it
-            return Ok(None);
+            return Ok(AppendOutcome {
+                last_position: None,
+                wal_bytes_written: 0,
+            });
         }
 
         let records = MultiRecord::new_unchecked(&multi_record_spare_buffer);
@@ -195,7 +209,7 @@ impl MultiRecordLog {
             queue,
             records,
         };
-        self.record_log_writer.write_record(record)?;
+        let num_bytes_written = self.record_log_writer.write_record(record)?;
         self.persist_on_policy()?;
 
         let mem_queue = self.in_mem_queues.get_queue_mut(queue)?;
@@ -208,26 +222,29 @@ impl MultiRecordLog {
         }
 
         self.multi_record_spare_buffer = multi_record_spare_buffer;
-        Ok(Some(max_position))
+        Ok(AppendOutcome {
+            last_position: Some(max_position),
+            wal_bytes_written: num_bytes_written,
+        })
     }
 
-    fn record_empty_queues_position(&mut self) -> io::Result<()> {
-        let mut has_empty_queues = false;
+    fn record_empty_queues_position(&mut self) -> io::Result<u64> {
+        let mut num_bytes_written: u64 = 0;
+
         for (queue_id, queue) in self.in_mem_queues.empty_queues() {
             let next_position = queue.next_position();
             let record = MultiPlexedRecord::RecordPosition {
                 queue: queue_id,
                 position: next_position,
             };
-            self.record_log_writer.write_record(record)?;
-            has_empty_queues = true
+            num_bytes_written += self.record_log_writer.write_record(record)?;
         }
-        if has_empty_queues {
+        if num_bytes_written > 0 {
             // We need to fsync here! We are remove files from the FS
             // so we need to make sure our empty queue positions are properly persisted.
             self.persist(PersistAction::FlushAndFsync)?;
         }
-        Ok(())
+        Ok(num_bytes_written)
     }
 
     /// Truncates the queue up to a given `position`, included. This method immediately
@@ -235,32 +252,39 @@ impl MultiRecordLog {
     /// asynchronously when they become exclusively composed of deleted records.
     ///
     /// This method will always truncate the record log and release the associated memory.
-    /// It returns the number of records deleted.
     pub fn truncate(
         &mut self,
         queue: &str,
         truncate_range: RangeToInclusive<u64>,
-    ) -> Result<usize, TruncateError> {
+    ) -> Result<TruncateOutcome, TruncateError> {
         info!(range=?truncate_range, queue = queue, "truncate queue");
         if !self.queue_exists(queue) {
             return Err(TruncateError::MissingQueue(queue.to_string()));
         }
-        self.record_log_writer
-            .write_record(MultiPlexedRecord::Truncate {
-                truncate_range,
-                queue,
-            })?;
-        let removed_count = self
+        let mut num_bytes_written =
+            self.record_log_writer
+                .write_record(MultiPlexedRecord::Truncate {
+                    truncate_range,
+                    queue,
+                })?;
+        let evicted_records = self
             .in_mem_queues
             .truncate(queue, truncate_range)
             .unwrap_or(0);
-        self.run_gc_if_necessary()?;
+        num_bytes_written += self.run_gc_if_necessary()?;
         self.persist_on_policy()?;
-        Ok(removed_count)
+        Ok(TruncateOutcome {
+            evicted_records,
+            wal_bytes_written: num_bytes_written,
+        })
     }
 
-    fn run_gc_if_necessary(&mut self) -> io::Result<()> {
+    /// Returns the number of bytes the GC pass appended to the WAL — empty-queue position
+    /// records, if any. Returns 0 when there's no GC work to do.
+    fn run_gc_if_necessary(&mut self) -> io::Result<u64> {
         debug!("run_gc_if_necessary");
+        let mut num_bytes_written = 0;
+
         if self
             .record_log_writer
             .directory()
@@ -273,7 +297,7 @@ impl MultiRecordLog {
             // But first we clone the current file number to make sure that the file that will
             // contain the truncate positions it self won't be GC'ed.
             let _file_number = self.record_log_writer.current_file().clone();
-            self.record_empty_queues_position()?;
+            num_bytes_written += self.record_empty_queues_position()?;
             self.record_log_writer.directory().gc()?;
         }
         // only execute the following if we are above the debug  level in tokio tracing
@@ -285,7 +309,7 @@ impl MultiRecordLog {
                 debug!(first_pos=?first_pos, last_pos=?last_pos, "queue positions after gc");
             }
         }
-        Ok(())
+        Ok(num_bytes_written)
     }
 
     pub fn range<R>(

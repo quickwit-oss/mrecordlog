@@ -36,19 +36,23 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
 }
 
 impl<W: BlockWrite + Unpin> RecordWriter<W> {
-    /// Writes a record.
+    /// Writes a record. Returns the total number of bytes pushed to the underlying writer
+    /// for this record, including frame headers and any block padding.
     ///
-    /// Even if this call returns `Ok(())`, at this point the data
+    /// Even if this call returns `Ok(_)`, at this point the data
     /// is likely to be not durably stored on disk.
     ///
     /// For instance, the data could be stale in a library level buffer,
     /// by a writer level buffer, or an application buffer,
     /// or could not be flushed to disk yet by the OS.
-    pub fn write_record<'a>(&mut self, record: impl Serializable<'a>) -> io::Result<()> {
+    pub fn write_record<'a>(&mut self, record: impl Serializable<'a>) -> io::Result<u64> {
         let mut is_first_frame = true;
+        let mut num_bytes_written: u64 = 0;
+
         self.buffer.clear();
         record.serialize(&mut self.buffer);
         let mut payload = &self.buffer[..];
+
         loop {
             let frame_payload_len = self
                 .frame_writer
@@ -58,13 +62,14 @@ impl<W: BlockWrite + Unpin> RecordWriter<W> {
             payload = &payload[frame_payload_len..];
             let is_last_frame = payload.is_empty();
             let frame_type = frame_type(is_first_frame, is_last_frame);
-            self.frame_writer.write_frame(frame_type, frame_payload)?;
+            num_bytes_written += self.frame_writer.write_frame(frame_type, frame_payload)? as u64;
             is_first_frame = false;
+
             if is_last_frame {
                 break;
             }
         }
-        Ok(())
+        Ok(num_bytes_written)
     }
 
     /// Persist the data to disk, according to the persist_action.

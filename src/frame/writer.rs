@@ -19,21 +19,28 @@ impl<W: BlockWrite + Unpin> FrameWriter<W> {
     }
 
     /// Writes a frame. The payload has to be lower than the
-    /// remaining space in the frame as defined
-    /// by `max_writable_frame_length`.
-    pub fn write_frame(&mut self, frame_type: FrameType, payload: &[u8]) -> io::Result<()> {
+    /// remaining space in the frame as defined by `max_writable_frame_length`.
+    ///
+    /// Returns the number of bytes pushed to the underlying
+    /// writer (header + payload, plus any zero-padding written to close out the current block).
+    pub fn write_frame(&mut self, frame_type: FrameType, payload: &[u8]) -> io::Result<usize> {
+        let mut num_bytes_written = 0;
         let num_bytes_remaining_in_block = self.wrt.num_bytes_remaining_in_block();
+
         if num_bytes_remaining_in_block < HEADER_LEN {
             let zero_bytes = [0u8; HEADER_LEN];
             self.wrt
                 .write(&zero_bytes[..num_bytes_remaining_in_block])?;
+            num_bytes_written += num_bytes_remaining_in_block;
         }
         let record_len = HEADER_LEN + payload.len();
         let (buffer_header, buffer_record) = self.buffer[..record_len].split_at_mut(HEADER_LEN);
         buffer_record.copy_from_slice(payload);
         Header::for_payload(frame_type, payload).serialize(buffer_header);
         self.wrt.write(&self.buffer[..record_len])?;
-        Ok(())
+
+        num_bytes_written += record_len;
+        Ok(num_bytes_written)
     }
 
     /// Flush the buffered writer used in the FrameWriter.
