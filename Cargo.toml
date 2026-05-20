@@ -17,10 +17,10 @@ thiserror = "2"
 tracing = "0.1.37"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 futures = "0.3"
 proptest = "1"
-rand = "0.9"
+rand = "0.10"
 tempfile = "3"
 
 [[bench]]
