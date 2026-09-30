@@ -270,11 +270,12 @@ impl MultiRecordLog {
         let evicted_records = self
             .in_mem_queues
             .truncate(queue, truncate_range)
-            .unwrap_or(0);
+            .unwrap_or_default();
         num_bytes_written += self.run_gc_if_necessary()?;
         self.persist_on_policy()?;
         Ok(TruncateOutcome {
-            evicted_records,
+            evicted_records: evicted_records.num_records,
+            evicted_bytes: evicted_records.num_bytes,
             wal_bytes_written: num_bytes_written,
         })
     }

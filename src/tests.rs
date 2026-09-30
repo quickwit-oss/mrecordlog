@@ -271,6 +271,41 @@ fn test_multi_insert_truncate() {
 }
 
 #[test]
+fn test_truncate_reports_evicted_bytes() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
+        multi_record_log
+            .append_records(
+                "queue",
+                None,
+                [b"hello".as_slice(), b"happy", b"tax", b"payer"].into_iter(),
+            )
+            .unwrap();
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=1).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 2);
+        assert_eq!(truncate_outcome.evicted_bytes, 10);
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=1).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 0);
+        assert_eq!(truncate_outcome.evicted_bytes, 0);
+    }
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=2).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 1);
+        assert_eq!(truncate_outcome.evicted_bytes, 3);
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=10).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 1);
+        assert_eq!(truncate_outcome.evicted_bytes, 5);
+    }
+}
+
+#[test]
 fn test_truncate_range_correct_pos() {
     let tempdir = tempfile::tempdir().unwrap();
     {

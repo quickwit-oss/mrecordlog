@@ -60,6 +60,7 @@ pub struct TruncateOutcome {
     /// Number of records evicted from the in-memory queue by this call. This is a delta:
     /// a truncate at a position already covered by a previous truncate reports `0`.
     pub evicted_records: usize,
+    pub evicted_bytes: usize,
     pub wal_bytes_written: u64,
 }
 
