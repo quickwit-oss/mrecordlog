@@ -11,7 +11,7 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
         args: --tests
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: test
 
     steps:
@@ -65,7 +65,7 @@ jobs:
 
   thirdparty-license:
     name: Check Datadog third-party license file
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
