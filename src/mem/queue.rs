@@ -16,7 +16,7 @@ struct RecordMeta {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct EvictedRecords {
+pub(crate) struct MemEvictedRecords {
     pub num_records: usize,
     pub num_bytes: usize,
 }
@@ -171,19 +171,19 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub fn truncate_head(&mut self, truncate_range: RangeToInclusive<u64>) -> EvictedRecords {
+    pub fn truncate_head(&mut self, truncate_range: RangeToInclusive<u64>) -> MemEvictedRecords {
         let truncate_up_to_pos = truncate_range.end;
         if self.start_position > truncate_up_to_pos {
-            return EvictedRecords::default();
+            return MemEvictedRecords::default();
         }
         if truncate_up_to_pos + 1 >= self.next_position() {
             self.start_position = truncate_up_to_pos + 1;
             let num_bytes = self.concatenated_records.len();
             self.concatenated_records.clear();
-            let record_count = self.record_metas.len();
+            let num_records = self.record_metas.len();
             self.record_metas.clear();
-            return EvictedRecords {
-                num_records: record_count,
+            return MemEvictedRecords {
+                num_records,
                 num_bytes,
             };
         }
@@ -199,7 +199,7 @@ impl MemQueue {
         self.concatenated_records
             .truncate_head(..start_offset_to_keep);
         self.start_position = truncate_up_to_pos + 1;
-        EvictedRecords {
+        MemEvictedRecords {
             num_records: first_record_to_keep,
             num_bytes: start_offset_to_keep,
         }

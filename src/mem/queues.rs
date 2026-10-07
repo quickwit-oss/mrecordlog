@@ -4,7 +4,7 @@ use std::ops::{RangeBounds, RangeToInclusive};
 use tracing::{info, warn};
 
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
-use crate::mem::{EvictedRecords, MemQueue, QueuesSummary};
+use crate::mem::{MemEvictedRecords, MemQueue, QueuesSummary};
 use crate::rolling::FileNumber;
 use crate::Record;
 
@@ -162,7 +162,7 @@ impl MemQueues {
         &mut self,
         queue: &str,
         position: RangeToInclusive<u64>,
-    ) -> Option<EvictedRecords> {
+    ) -> Option<MemEvictedRecords> {
         if let Ok(queue) = self.get_queue_mut(queue) {
             Some(queue.truncate_head(position))
         } else {
