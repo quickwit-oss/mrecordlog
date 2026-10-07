@@ -182,6 +182,7 @@ impl MultiRecordLog {
             // we accept position in the future, and move forward as required.
             if position + 1 == next_position {
                 return Ok(AppendOutcome {
+                    queue_size_bytes: self.in_mem_queues.num_bytes(queue)?,
                     last_position: None,
                     wal_bytes_written: 0,
                 });
@@ -198,6 +199,7 @@ impl MultiRecordLog {
             self.multi_record_spare_buffer = multi_record_spare_buffer;
             // empty transaction: don't persist it
             return Ok(AppendOutcome {
+                queue_size_bytes: self.in_mem_queues.num_bytes(queue)?,
                 last_position: None,
                 wal_bytes_written: 0,
             });
@@ -223,6 +225,7 @@ impl MultiRecordLog {
 
         self.multi_record_spare_buffer = multi_record_spare_buffer;
         Ok(AppendOutcome {
+            queue_size_bytes: self.in_mem_queues.num_bytes(queue)?,
             last_position: Some(max_position),
             wal_bytes_written: num_bytes_written,
         })
@@ -274,6 +277,7 @@ impl MultiRecordLog {
         num_bytes_written += self.run_gc_if_necessary()?;
         self.persist_on_policy()?;
         Ok(TruncateOutcome {
+            queue_size_bytes: self.in_mem_queues.num_bytes(queue)?,
             evicted_records: evicted_records.num_records,
             evicted_bytes: evicted_records.num_bytes,
             wal_bytes_written: num_bytes_written,

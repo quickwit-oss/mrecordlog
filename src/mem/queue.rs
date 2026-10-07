@@ -40,6 +40,7 @@ impl MemQueue {
 
     pub fn summary(&self) -> QueueSummary {
         QueueSummary {
+            num_bytes: self.num_bytes(),
             start: self.start_position(),
             end: self.last_position(),
             file_number: self.first_file_number(),
@@ -202,6 +203,10 @@ impl MemQueue {
             num_records: first_record_to_keep,
             num_bytes: start_offset_to_keep,
         }
+    }
+
+    pub fn num_bytes(&self) -> usize {
+        self.concatenated_records.len()
     }
 
     pub fn size(&self) -> usize {

@@ -45,6 +45,8 @@ pub struct ResourceUsage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppendOutcome {
+    /// Total size of the queue after this append operation.
+    pub queue_size_bytes: usize,
     /// Position of the last record appended, or `None` for an idempotent no-op
     /// (empty payloads, or `position_opt` already past the queue's head).
     pub last_position: Option<u64>,
@@ -57,6 +59,8 @@ pub struct AppendOutcome {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TruncateOutcome {
+    /// Total size of the queue after this truncate operation.
+    pub queue_size_bytes: usize,
     /// Number of records evicted from the in-memory queue by this call. This is a delta:
     /// a truncate at a position already covered by a previous truncate reports `0`.
     pub evicted_records: usize,

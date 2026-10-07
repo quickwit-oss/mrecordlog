@@ -149,6 +149,10 @@ impl MemQueues {
         Ok(self.get_queue(queue)?.next_position())
     }
 
+    pub fn num_bytes(&self, queue: &str) -> Result<usize, MissingQueue> {
+        Ok(self.get_queue(queue)?.num_bytes())
+    }
+
     /// Removes records up to the supplied `position`,
     /// including the position itself.
     ///
