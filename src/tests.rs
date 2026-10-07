@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use bytes::Buf;
 
+use crate::error::{AppendError, TruncateError};
 use crate::{MultiRecordLog, Record};
 
 fn read_all_records<'a>(multi_record_log: &'a MultiRecordLog, queue: &str) -> Vec<Cow<'a, [u8]>> {
@@ -268,6 +269,169 @@ fn test_multi_insert_truncate() {
             &[b"3".as_slice(), b"4".as_slice()]
         )
     }
+}
+
+#[test]
+fn test_truncate_reports_evicted_bytes() {
+    let tempdir = tempfile::tempdir().unwrap();
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        multi_record_log.create_queue("queue").unwrap();
+        multi_record_log
+            .append_records(
+                "queue",
+                None,
+                [b"hello".as_slice(), b"happy", b"tax", b"payer"].into_iter(),
+            )
+            .unwrap();
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=1).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 2);
+        assert_eq!(truncate_outcome.evicted_bytes, 10);
+        assert_eq!(truncate_outcome.queue_size_bytes, 8);
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=1).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 0);
+        assert_eq!(truncate_outcome.evicted_bytes, 0);
+        assert_eq!(truncate_outcome.queue_size_bytes, 8);
+    }
+    {
+        let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=2).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 1);
+        assert_eq!(truncate_outcome.evicted_bytes, 3);
+        assert_eq!(truncate_outcome.queue_size_bytes, 5);
+
+        let truncate_outcome = multi_record_log.truncate("queue", ..=10).unwrap();
+        assert_eq!(truncate_outcome.evicted_records, 1);
+        assert_eq!(truncate_outcome.evicted_bytes, 5);
+        assert_eq!(truncate_outcome.queue_size_bytes, 0);
+    }
+}
+
+#[test]
+fn test_queue_bytes_after_writes_truncation_and_recovery() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+    multi_record_log.create_queue("queue").unwrap();
+    multi_record_log.create_queue("other-queue").unwrap();
+    let outcome = multi_record_log
+        .append_record("other-queue", None, b"untouched".as_slice())
+        .unwrap();
+    assert_eq!(outcome.queue_size_bytes, 9);
+    assert_eq!(multi_record_log.summary().queues["queue"].num_bytes, 0);
+
+    let mut retained_bytes = 0;
+    for iteration in 0..32 {
+        let outcome = multi_record_log
+            .append_records(
+                "queue",
+                None,
+                [b"hello".as_slice(), b"happy", b"tax", b"payer"].into_iter(),
+            )
+            .unwrap();
+        assert_eq!(outcome.queue_size_bytes, retained_bytes + 18);
+        assert_eq!(outcome.last_position, Some(iteration * 4 + 3));
+
+        let outcome = multi_record_log
+            .append_records("queue", None, std::iter::empty::<&[u8]>())
+            .unwrap();
+        assert_eq!(outcome.last_position, None);
+        assert_eq!(outcome.queue_size_bytes, retained_bytes + 18);
+        assert_eq!(outcome.wal_bytes_written, 0);
+
+        let outcome = multi_record_log
+            .append_record("queue", Some(iteration * 4 + 3), b"ignored".as_slice())
+            .unwrap();
+        assert_eq!(outcome.last_position, None);
+        assert_eq!(outcome.queue_size_bytes, retained_bytes + 18);
+        assert_eq!(outcome.wal_bytes_written, 0);
+
+        let outcome = multi_record_log
+            .truncate("queue", ..=iteration * 4 + 1)
+            .unwrap();
+        assert_eq!(outcome.evicted_bytes, retained_bytes + 10);
+        assert_eq!(outcome.queue_size_bytes, 8);
+        retained_bytes = 8;
+
+        let outcome = multi_record_log
+            .truncate("queue", ..=iteration * 4 + 1)
+            .unwrap();
+        assert_eq!(outcome.evicted_bytes, 0);
+        assert_eq!(outcome.queue_size_bytes, 8);
+
+        drop(multi_record_log);
+        multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+        let summary = multi_record_log.summary();
+        assert_eq!(summary.queues["queue"].num_bytes, 8);
+        assert_eq!(summary.queues["other-queue"].num_bytes, 9);
+        assert_eq!(
+            multi_record_log
+                .range("queue", ..)
+                .unwrap()
+                .collect::<Vec<_>>(),
+            [
+                Record::new(iteration * 4 + 2, b"tax"),
+                Record::new(iteration * 4 + 3, b"payer"),
+            ]
+        );
+        let actual_bytes: usize = multi_record_log
+            .range("queue", ..)
+            .unwrap()
+            .map(|record| record.payload.len())
+            .sum();
+        assert_eq!(summary.queues["queue"].num_bytes, actual_bytes);
+    }
+
+    let outcome = multi_record_log.truncate("queue", ..=127).unwrap();
+    assert_eq!(outcome.queue_size_bytes, 0);
+    drop(multi_record_log);
+    let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+    assert_eq!(multi_record_log.summary().queues["queue"].num_bytes, 0);
+}
+
+#[test]
+fn test_rejected_operations_preserve_queue_and_wal() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let mut multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+    multi_record_log.create_queue("queue").unwrap();
+    multi_record_log
+        .append_records("queue", None, [b"hello".as_slice(), b"world!"].into_iter())
+        .unwrap();
+    let usage_before = multi_record_log.resource_usage();
+
+    assert!(matches!(
+        multi_record_log.append_record("missing", None, b"hello".as_slice()),
+        Err(AppendError::MissingQueue(queue)) if queue == "missing"
+    ));
+    assert!(matches!(
+        multi_record_log.append_records("missing", None, std::iter::empty::<&[u8]>()),
+        Err(AppendError::MissingQueue(queue)) if queue == "missing"
+    ));
+    assert!(matches!(
+        multi_record_log.truncate("missing", ..=10),
+        Err(TruncateError::MissingQueue(queue)) if queue == "missing"
+    ));
+    assert!(matches!(
+        multi_record_log.append_record("queue", Some(0), b"rejected".as_slice()),
+        Err(AppendError::Past)
+    ));
+    assert_eq!(multi_record_log.resource_usage(), usage_before);
+    assert_eq!(multi_record_log.summary().queues["queue"].num_bytes, 11);
+    assert_eq!(
+        read_all_records(&multi_record_log, "queue"),
+        [b"hello".as_slice(), b"world!"]
+    );
+
+    drop(multi_record_log);
+    let multi_record_log = MultiRecordLog::open(tempdir.path()).unwrap();
+    assert!(!multi_record_log.queue_exists("missing"));
+    assert_eq!(multi_record_log.summary().queues["queue"].num_bytes, 11);
+    assert_eq!(
+        read_all_records(&multi_record_log, "queue"),
+        [b"hello".as_slice(), b"world!"]
+    );
 }
 
 #[test]

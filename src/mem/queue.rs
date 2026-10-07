@@ -15,6 +15,12 @@ struct RecordMeta {
     position: u64,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct MemEvictedRecords {
+    pub num_records: usize,
+    pub num_bytes: usize,
+}
+
 #[derive(Default)]
 pub(crate) struct MemQueue {
     // Concatenated records
@@ -34,6 +40,7 @@ impl MemQueue {
 
     pub fn summary(&self) -> QueueSummary {
         QueueSummary {
+            num_bytes: self.num_bytes(),
             start: self.start_position(),
             end: self.last_position(),
             file_number: self.first_file_number(),
@@ -164,17 +171,21 @@ impl MemQueue {
     ///
     /// If truncating to a future position, make the queue go forward to that position.
     /// Return the number of record removed.
-    pub fn truncate_head(&mut self, truncate_range: RangeToInclusive<u64>) -> usize {
+    pub fn truncate_head(&mut self, truncate_range: RangeToInclusive<u64>) -> MemEvictedRecords {
         let truncate_up_to_pos = truncate_range.end;
         if self.start_position > truncate_up_to_pos {
-            return 0;
+            return MemEvictedRecords::default();
         }
         if truncate_up_to_pos + 1 >= self.next_position() {
             self.start_position = truncate_up_to_pos + 1;
+            let num_bytes = self.concatenated_records.len();
             self.concatenated_records.clear();
-            let record_count = self.record_metas.len();
+            let num_records = self.record_metas.len();
             self.record_metas.clear();
-            return record_count;
+            return MemEvictedRecords {
+                num_records,
+                num_bytes,
+            };
         }
         let first_record_to_keep = self
             .position_to_idx(truncate_up_to_pos + 1)
@@ -188,7 +199,14 @@ impl MemQueue {
         self.concatenated_records
             .truncate_head(..start_offset_to_keep);
         self.start_position = truncate_up_to_pos + 1;
-        first_record_to_keep
+        MemEvictedRecords {
+            num_records: first_record_to_keep,
+            num_bytes: start_offset_to_keep,
+        }
+    }
+
+    pub fn num_bytes(&self) -> usize {
+        self.concatenated_records.len()
     }
 
     pub fn size(&self) -> usize {

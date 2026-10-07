@@ -34,6 +34,14 @@ pub struct MultiRecordLog {
 }
 ```
 
+`QueueSummary::num_bytes` reports the total payload bytes retained in a queue.
+`AppendOutcome::queue_size_bytes` and `TruncateOutcome::queue_size_bytes` report this
+same total after the operation, including operations that do not change the queue.
+These values exclude WAL framing and in-memory record metadata. They use the
+existing payload buffer length and are available after recovery without scanning
+records. `TruncateOutcome::evicted_bytes` remains the number of payload bytes
+removed by that operation.
+
 # Non-goals
 
 This is not Kafka. This recordlog is designed for a "small amount of data".
