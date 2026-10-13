@@ -4,7 +4,7 @@ use std::ops::{RangeBounds, RangeToInclusive};
 use tracing::{info, warn};
 
 use crate::error::{AlreadyExists, AppendError, MissingQueue};
-use crate::mem::{MemQueue, QueuesSummary};
+use crate::mem::{MemEvictedRecords, MemQueue, QueuesSummary};
 use crate::rolling::FileNumber;
 use crate::Record;
 
@@ -149,12 +149,20 @@ impl MemQueues {
         Ok(self.get_queue(queue)?.next_position())
     }
 
+    pub fn num_bytes(&self, queue: &str) -> Result<usize, MissingQueue> {
+        Ok(self.get_queue(queue)?.num_bytes())
+    }
+
     /// Removes records up to the supplied `position`,
     /// including the position itself.
     ///
     /// If there are no records `<= position`, the method will
     /// not do anything.
-    pub fn truncate(&mut self, queue: &str, position: RangeToInclusive<u64>) -> Option<usize> {
+    pub fn truncate(
+        &mut self,
+        queue: &str,
+        position: RangeToInclusive<u64>,
+    ) -> Option<MemEvictedRecords> {
         if let Ok(queue) = self.get_queue_mut(queue) {
             Some(queue.truncate_head(position))
         } else {

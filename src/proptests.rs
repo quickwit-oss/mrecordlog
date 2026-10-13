@@ -10,6 +10,14 @@ use tempfile::TempDir;
 use crate::record::{MultiPlexedRecord, MultiRecord};
 use crate::{MultiRecordLog, Record, Serializable};
 
+fn retained_payload_bytes(record_log: &MultiRecordLog, queue: &str) -> usize {
+    record_log
+        .range(queue, ..)
+        .unwrap()
+        .map(|record| record.payload.len())
+        .sum()
+}
+
 struct PropTestEnv {
     tempdir: TempDir,
     record_log: MultiRecordLog,
@@ -56,6 +64,12 @@ impl PropTestEnv {
                 self.truncate(queue, pos);
             }
         }
+        for (queue, summary) in self.record_log.summary().queues {
+            assert_eq!(
+                summary.num_bytes,
+                retained_payload_bytes(&self.record_log, &queue)
+            );
+        }
     }
 
     pub fn reload(&mut self) {
@@ -72,21 +86,23 @@ impl PropTestEnv {
         let state = self.state.get_mut(queue).unwrap();
 
         let new_pos = state.0.end + skip_one_pos as u64;
-        let res = self
+        let outcome = self
             .record_log
             .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
-            .unwrap()
-            .last_position
             .unwrap();
+        assert_eq!(outcome.last_position, Some(new_pos));
+        assert_eq!(
+            outcome.queue_size_bytes,
+            retained_payload_bytes(&self.record_log, queue)
+        );
 
-        assert!(self
+        let repeated_outcome = self
             .record_log
             .append_records(queue, Some(new_pos), std::iter::once(&b"BB"[..]))
-            .unwrap()
-            .last_position
-            .is_none());
+            .unwrap();
+        assert!(repeated_outcome.last_position.is_none());
+        assert_eq!(repeated_outcome.queue_size_bytes, outcome.queue_size_bytes);
 
-        assert_eq!(new_pos, res);
         state.0.end = new_pos + 1;
         state.1 += 1;
     }
@@ -103,6 +119,10 @@ impl PropTestEnv {
                 std::iter::repeat(&self.block_to_write[..]).take(count as usize),
             )
             .unwrap();
+        assert_eq!(
+            outcome.queue_size_bytes,
+            retained_payload_bytes(&self.record_log, queue)
+        );
 
         if count != 0 {
             let res = outcome.last_position.unwrap();
@@ -114,21 +134,21 @@ impl PropTestEnv {
 
     pub fn truncate(&mut self, queue: &str, pos: u64) {
         let state = self.state.get_mut(queue).unwrap();
+        let previous_bytes = retained_payload_bytes(&self.record_log, queue);
+        let outcome = self.record_log.truncate(queue, ..=pos).unwrap();
+        let remaining_bytes = retained_payload_bytes(&self.record_log, queue);
+        assert_eq!(outcome.queue_size_bytes, remaining_bytes);
+        assert_eq!(outcome.evicted_bytes, previous_bytes - remaining_bytes);
         if state.0.contains(&pos) {
             state.0.start = pos + 1;
-            state.1 -= self
-                .record_log
-                .truncate(queue, ..=pos)
-                .unwrap()
-                .evicted_records as u64;
+            state.1 -= outcome.evicted_records as u64;
         } else if pos >= state.0.end {
             // advance the queue to the position.
             state.0 = (pos + 1)..(pos + 1);
             state.1 = 0;
-            self.record_log.truncate(queue, ..=pos).unwrap();
         } else {
             // should be a no-op
-            self.record_log.truncate(queue, ..=pos).unwrap();
+            assert_eq!(outcome.evicted_records, 0);
         }
     }
 }

@@ -4,6 +4,7 @@ use serde::Serialize;
 
 #[derive(Default, Serialize, Debug)]
 pub struct QueueSummary {
+    pub num_bytes: usize,
     pub start: u64,
     pub end: Option<u64>,
     pub file_number: Option<u64>,
