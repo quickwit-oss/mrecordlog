@@ -1,6 +1,6 @@
 # --- Builder
 
-FROM rust:bullseye AS bin-builder
+FROM rust:trixie AS bin-builder
 
 COPY . /mrecordlog
 
@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # --- ACTUAL image.
 
-FROM debian:bullseye-slim AS quickwit
+FROM debian:trixie-slim AS quickwit
 
 LABEL org.opencontainers.image.title="Quickwit MRecordlog utils CLI"
 LABEL maintainer="Quickwit, Inc. <hello@quickwit.io>"
